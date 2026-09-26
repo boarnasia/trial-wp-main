@@ -28,6 +28,7 @@ Caddy リバースプロキシ（内部 CA による HTTPS）と、両サイト�
 uv run cli help                      # コマンド一覧
 uv run cli version
 uv run cli dev-env:check-health      # 環境が正常か確認（読み取りのみ）
+uv run cli dev-env:migrate           # 環境を最新の環境バージョンへ移行
 uv run cli dev-env:install           # 構築して起動（sudo のパスワードを求められる）
 uv run cli dev-env:install --dry-run # 実行内容の確認だけ
 uv run cli dev-env:uninstall         # 確認後にすべて削除（--yes で確認を省略）
@@ -47,6 +48,44 @@ uv run cli dev-env:uninstall         # 確認後にすべて削除（--yes で�
 `dev-env:uninstall` は、コンテナ・ボリューム・イメージ・ネットワーク・hosts ブロック・CA・サイトディレクトリ・`.local/` の状態ファイルを削除する。サイトに未コミットや未 push の変更があれば警告する。`/etc/hosts.wp-dev-env.bak` は復旧用に残し、削除コマンド（`sudo rm /etc/hosts.wp-dev-env.bak`）を最後に案内する。
 
 管理者のユーザー名とパスワードは各サイトの `.env`（`WP_ADMIN_USER` / `WP_ADMIN_PASSWORD`）にある。
+
+## 環境バージョンと移行
+
+wp-main の更新には、pull するだけでは反映されない変更（ボリューム名の変更、`.env` への変数の追加など）がある。これを migration として配り、環境バージョンで適用状況を管理する。
+
+- 最新のバージョン: `src/wp_main/migrations/` にある migration の最大番号（migration がなければ 1）
+- 導入済みのバージョン: `.local/dev-env-state.json` の `env_version`（マシンごと、git の管理外）。記録がない既存の環境は 1 とみなす
+
+```bash
+uv run cli dev-env:migrate           # 未適用の migration を順に実行
+uv run cli dev-env:migrate --dry-run # 実行する migration の一覧だけ表示
+```
+
+`dev-env:install` は wp-main の `core.hooksPath` を `.githooks` に設定する。これにより、`git pull`（merge と rebase の両方）の後に `dev-env:migrate --auto` が自動で動く。
+自動で実行するのは、sudo もデータの削除も必要とせず、Docker に接続できる場合だけ。それ以外は何もせずに、端末で `uv run cli dev-env:migrate` を実行するよう表示する。
+install 済みの環境でフックだけを有効にするには、`git config core.hooksPath .githooks` を実行する。
+
+環境バージョンが古いと、CLI の各コマンドが警告を出し、`dev-env:check-health` は WARN を出す。
+
+### migration の書き方
+
+`src/wp_main/migrations/m0002_<名前>.py` のように、2 からの連番で 1 ファイルずつ追加する。
+
+```python
+VERSION = 2                      # ファイル名の番号と同じ
+DESCRIPTION = "wp1 の DB ボリューム名を変更"
+REQUIRES_SUDO = False            # True なら自動実行しない（端末での実行が必要）
+DESTRUCTIVE = False              # True なら自動実行せず、実行前に確認をとる
+LOSES = ""                       # DESTRUCTIVE のとき、失われるものを書く
+
+
+def up(ctx):                     # ctx.runner / ctx.root / ctx.main_dir / ctx.sites
+    ...
+```
+
+- 途中で失敗して再実行されても結果が同じになるよう、冪等に書く
+- 変更してよいのは環境のリソース（ボリューム、ネットワーク、hosts、`.env` への変数の追加、CA、コンテナ）だけ。wp-wp1 / wp-wp2 の中身は変更しない（サイトの変更は各リポジトリのコミットで配る）
+- 後戻り（down）は用意しない。困ったときは uninstall してから install し直す
 
 ## 日常の操作（wp-main で実行）
 

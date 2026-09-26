@@ -3,7 +3,7 @@ from pathlib import Path
 
 import pytest
 
-from wp_main import devenv, docker, hosts, trust
+from wp_main import devenv, docker, hosts, trust, versioning
 from wp_main.config import SITES
 from wp_main.runner import DevEnvError
 from wp_main.sites import render_site
@@ -123,3 +123,28 @@ def test_installed_site_is_not_reinstalled(env, fake_runner, monkeypatch):
     devenv.install(runner, root, start=True, trust=True)
     assert not [call for call in runner.calls if "install" in call and "core" in call]
     assert not runner.mutating(["docker", "network", "create"])
+
+
+def test_fresh_install_records_latest(env, fake_runner, monkeypatch):
+    root, _ = env
+    monkeypatch.setattr(devenv, "check_ports", lambda runner, ports: None)
+    monkeypatch.setattr(versioning, "latest", lambda: 3)
+    devenv.install(fake_runner(responder()), root, start=True, trust=True)
+    assert trust.load_state()["env_version"] == 3
+
+
+def test_existing_install_keeps_version(env, fake_runner, monkeypatch, capsys):
+    root, _ = env
+    (root / SITES[0].dir_name).mkdir()
+    trust.update_state(env_version=1)
+    monkeypatch.setattr(versioning, "latest", lambda: 3)
+    devenv.install(fake_runner(responder()), root, start=False, trust=True)
+    assert trust.load_state()["env_version"] == 1
+    assert "dev-env:migrate" in capsys.readouterr().out
+
+
+def test_install_enables_hooks(env, fake_runner):
+    root, _ = env
+    runner = fake_runner(responder())
+    devenv.install(runner, root, start=False, trust=True)
+    assert [call for call in runner.calls if call[-2:] == ["core.hooksPath", ".githooks"]]

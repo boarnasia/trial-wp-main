@@ -6,6 +6,7 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
 from .config import CADDY_ROOT_CERT, CADDY_SERVICE, MAIN_DIR, NETWORK, SITES, Site
+from . import versioning
 from .runner import Runner
 from .sites import SECRET_PLACEHOLDER, read_env
 from .trust import SYSTEM_KEYCHAIN, pem_sha1
@@ -192,6 +193,20 @@ def config_checks(ctx: HealthContext) -> list[Check]:
             Check(f"config.env.{site.id}", "config", f"{site.dir_name}/.env", env_check(path), (f"config.repo.{site.id}",))
         )
     checks.append(Check("config.env.main", "config", "wp-main/.env", env_check(ctx.main_dir)))
+
+    def version() -> Result:
+        installed, newest = versioning.installed_version(ctx.root), versioning.latest()
+        if installed is None:
+            return Result(FAIL, "環境が導入されていません", INSTALL_HINT)
+        if installed < newest:
+            return Result(WARN, f"{installed}（最新: {newest}）", f"{versioning.MIGRATE_COMMAND} を実行してください")
+        if installed > newest:
+            return Result(
+                FAIL, f"{installed}（コードの最新 {newest} より新しい）", "wp-main を git pull してコードを更新してください"
+            )
+        return Result(OK, f"{installed}（最新）")
+
+    checks.append(Check("config.version", "config", "環境バージョン", version))
     return checks
 
 

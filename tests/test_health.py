@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 from typer.testing import CliRunner
 
-from wp_main import cli, health
+from wp_main import cli, health, trust, versioning
 from wp_main.config import SITES
 from wp_main.health import FAIL, OK, SKIP, WARN, Check, HealthContext, Result, evaluate
 from wp_main.sites import render_site
@@ -72,9 +72,11 @@ def world():
 
 
 @pytest.fixture
-def ctx_factory(tmp_path: Path, fake_runner, world):
+def ctx_factory(tmp_path: Path, fake_runner, world, monkeypatch):
     main = tmp_path / "wp-main"
     main.mkdir()
+    monkeypatch.setattr(trust, "STATE_FILE", main / ".local" / "state.json")
+    monkeypatch.setattr(trust, "LOCAL_DIR", main / ".local")
     (main / ".env").write_text("WP1_DOMAIN=local.wp1.yamashita109.com\n")
     for site in SITES:
         render_site(site, tmp_path / site.dir_name)
@@ -115,7 +117,7 @@ def test_evaluate_turns_exceptions_into_fail():
 def test_healthy_environment(ctx_factory):
     result = statuses(ctx_factory())
     assert set(result.values()) == {OK}
-    assert len(result) == 22
+    assert len(result) == 23
 
 
 def test_missing_repo_skips_env(ctx_factory, tmp_path):
@@ -217,3 +219,28 @@ def test_cli_warn_only_exits_zero(monkeypatch):
 
 def test_help_lists_check_health():
     assert "dev-env:check-health" in CliRunner().invoke(cli.app, ["help"]).stdout
+
+
+@pytest.mark.parametrize(
+    ("state", "latest", "expected"),
+    [
+        ({}, 1, OK),
+        ({}, 3, WARN),
+        ({"env_version": 5}, 3, FAIL),
+    ],
+)
+def test_version_item(ctx_factory, monkeypatch, state, latest, expected):
+    ctx = ctx_factory()
+    if state:
+        trust.update_state(**state)
+    monkeypatch.setattr(versioning, "latest", lambda: latest)
+    assert statuses(ctx)["config.version"] == expected
+
+
+def test_version_item_not_installed(ctx_factory, tmp_path):
+    import shutil
+
+    ctx = ctx_factory()
+    for site in SITES:
+        shutil.rmtree(tmp_path / site.dir_name)
+    assert statuses(ctx)["config.version"] == FAIL
