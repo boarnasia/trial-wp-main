@@ -6,7 +6,7 @@ wp-main から 1 コマンドでマルチリポジトリ WordPress 開発環境�
 ## Requirements
 
 ### Requirement: CLI エントリポイント
-wp-main ディレクトリで `uv run cli <command>` を実行したとき、CLI は `dev-env:install`、`dev-env:uninstall`、`help`、`version` の各コマンドを受け付けなければならない (MUST)。
+wp-main ディレクトリで `uv run cli <command>` を実行したとき、CLI は `dev-env:install`、`dev-env:uninstall`、`dev-env:check-health`、`help`、`version` の各コマンドを受け付けなければならない (MUST)。
 
 #### Scenario: help を表示する
 - **WHEN** ユーザーが `uv run cli help` を実行する
