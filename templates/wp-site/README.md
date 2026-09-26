@@ -16,7 +16,8 @@ cd ../wp-main && docker compose up -d
 docker network inspect wp-global-net >/dev/null 2>&1 || docker network create wp-global-net
 cp -n .env.example .env   # 初回のみ。change-me を書き換える
 docker compose up -d
-curl -I http://127.0.0.1:{{DEBUG_PORT}}/   # 公開 URL へ 301/302 が返れば正常
+# デバッグ用ポートはホスト名とポートが WP_HOME と違うため、そのままだと WordPress がポートを外した URL へ 301 を返す
+curl -s -o /dev/null -w '%{http_code}\n' -H 'Host: {{DOMAIN}}' -H 'X-Forwarded-Proto: https' http://127.0.0.1:{{DEBUG_PORT}}/   # 200 なら正常
 ```
 
 単体起動と一括起動はコンテナ名が同じなので同時には動かない。切り替えるときは片方を `docker compose down` する。

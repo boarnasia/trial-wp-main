@@ -62,7 +62,8 @@ docker compose run --rm wp1-cli wp plugin list   # WP-CLI
 
 ```bash
 cd ../wp-wp2 && docker compose up -d
-curl -I http://127.0.0.1:8082/       # 公開 URL へのリダイレクトが返れば正常
+# デバッグ用ポートはホスト名とポートが WP_HOME と違うため、そのままだと WordPress がポートを外した URL へ 301 を返す
+curl -s -o /dev/null -w '%{http_code}\n' -H 'Host: local.wp2.yamashita109.com' -H 'X-Forwarded-Proto: https' http://127.0.0.1:8082/   # 200 なら正常
 ```
 
 単体起動と一括起動はコンテナ名が同じなので同時には動かない。切り替えるときは先に片方を `docker compose down` する。
