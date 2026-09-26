@@ -3,7 +3,7 @@ from typing import Annotated
 
 import typer
 
-from . import __version__, devenv
+from . import __version__, devenv, health
 from .config import resolve_root
 from .runner import DevEnvError, Runner
 
@@ -48,6 +48,39 @@ def uninstall(
 ) -> None:
     """install で導入したサイトディレクトリ・Docker リソース・hosts・CA を削除する。"""
     run_guarded(lambda: devenv.uninstall(Runner(dry_run), resolve_root(root), assume_yes=yes))
+
+
+STATUS_COLORS = {
+    health.OK: typer.colors.GREEN,
+    health.WARN: typer.colors.YELLOW,
+    health.FAIL: typer.colors.RED,
+    health.SKIP: typer.colors.BRIGHT_BLACK,
+}
+
+
+@app.command("dev-env:check-health")
+def check_health(
+    root: RootOption = None,
+    as_json: Annotated[bool, typer.Option("--json", help="結果を JSON で出力する")] = False,
+) -> None:
+    """開発環境が正常に動いているかを、変更を加えずに確認する。"""
+    outcomes = health.run_health(health.HealthContext(Runner(), resolve_root(root)))
+    summary = health.summarize(outcomes)
+    if as_json:
+        typer.echo(health.to_json(outcomes))
+    else:
+        group = None
+        for outcome in outcomes:
+            if outcome.group != group:
+                group = outcome.group
+                typer.secho(f"\n{health.GROUPS[group]}", bold=True)
+            typer.secho(f"  [{outcome.status:<4}] ", fg=STATUS_COLORS[outcome.status], nl=False)
+            typer.echo(f"{outcome.title}: {outcome.message}")
+            if outcome.hint and outcome.status in (health.WARN, health.FAIL):
+                typer.echo(f"         → {outcome.hint}")
+        typer.echo("\n" + " / ".join(f"{status} {count}" for status, count in summary.items()))
+    if summary[health.FAIL]:
+        raise typer.Exit(1)
 
 
 @app.command("help")

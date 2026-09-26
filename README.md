@@ -27,6 +27,7 @@ Caddy リバースプロキシ（内部 CA による HTTPS）と、両サイト�
 ```bash
 uv run cli help                      # コマンド一覧
 uv run cli version
+uv run cli dev-env:check-health      # 環境が正常か確認（読み取りのみ）
 uv run cli dev-env:install           # 構築して起動（sudo のパスワードを求められる）
 uv run cli dev-env:install --dry-run # 実行内容の確認だけ
 uv run cli dev-env:uninstall         # 確認後にすべて削除（--yes で確認を省略）
@@ -72,14 +73,22 @@ curl -s -o /dev/null -w '%{http_code}\n' -H 'Host: local.wp2.yamashita109.com' -
 ## 検証
 
 ```bash
-docker compose ps                                                     # 5 コンテナが running
-curl -sI https://local.wp1.yamashita109.com/ | head -1                # HTTP/2 200（証明書エラーなし）
-curl -sI http://local.wp2.yamashita109.com/ | grep -i '^location'     # https:// へリダイレクト
-curl -s https://local.wp1.yamashita109.com/ | grep -o 'WordPress [0-9.]*'
-security find-certificate -c "Caddy Local Authority" /Library/Keychains/System.keychain
+uv run cli dev-env:check-health          # 各項目を OK / WARN / FAIL / SKIP で表示
+uv run cli dev-env:check-health --json   # 機械向け（CI やスクリプトから使う）
 ```
 
-ブラウザで開いて、鍵マークが有効なことと、`/wp-admin/` へのログイン後にリダイレクトがループしないことを確認する。
+sudo は使わず、環境も変更しない。確認する項目は次のとおり。
+
+| グループ | 項目 |
+| --- | --- |
+| 構成 | サイトリポジトリの origin、各 `.env` の有無と `change-me` の残り |
+| ホスト | 各ドメインの名前解決（127.0.0.1）、`wp-global-net`、Caddy の CA がキーチェーンに登録されているか |
+| コンテナ | Caddy と各サイトの WordPress・DB が running か（DB は healthy か） |
+| HTTP と WordPress | HTTPS の応答と証明書の検証、HTTP から HTTPS へのリダイレクト、インストール済みか、メジャーバージョン |
+
+- 前提の項目が FAIL なら、その項目は SKIP になる（例: Caddy が止まっていれば HTTP の項目はすべて SKIP）。WARN と FAIL には対処方法が表示される。
+- FAIL が 1 つでもあれば終了コード 1、WARN だけなら 0。
+- 管理画面へのログインは確認しない。ブラウザで `/wp-admin/` にログインし、リダイレクトがループしないことを確認する。
 
 ## 開発
 
