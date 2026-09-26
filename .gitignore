@@ -1,0 +1,10 @@
+# 個人用のフォルダ
+.local/
+
+# Python
+.venv/
+__pycache__/
+.pytest_cache/
+
+# 秘密値を含むため .env.example だけを管理する
+.env

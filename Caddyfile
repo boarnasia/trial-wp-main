@@ -1,0 +1,14 @@
+{
+	# 公開 CA ではなく Caddy の内部 CA で全サイトの証明書を発行する
+	local_certs
+}
+
+{$WP1_DOMAIN} {
+	tls internal
+	reverse_proxy wp1-wordpress:80
+}
+
+{$WP2_DOMAIN} {
+	tls internal
+	reverse_proxy wp2-wordpress:80
+}

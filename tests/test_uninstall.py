@@ -1,0 +1,38 @@
+import pytest
+import typer
+
+from wp_main import devenv
+
+
+def test_declined_confirmation_does_nothing(tmp_path, fake_runner, monkeypatch):
+    monkeypatch.setattr(typer, "confirm", lambda *a, **k: False)
+    monkeypatch.setattr(devenv, "load_state", lambda: {})
+    (tmp_path / "wp-wp1").mkdir()
+    runner = fake_runner()
+    with pytest.raises(typer.Exit):
+        devenv.uninstall(runner, tmp_path, assume_yes=False)
+    assert (tmp_path / "wp-wp1").exists()
+    assert runner.calls == []
+
+
+def test_unpushed_commits_warned(tmp_path, fake_runner):
+    (tmp_path / ".git").mkdir()
+    runner = fake_runner(lambda args: (0, "abc123 init\n" if "log" in args else ""))
+    assert devenv.unsaved_changes(runner, tmp_path) == ["未 push のコミット 1 件"]
+
+
+def test_backup_removal_is_suggested(tmp_path, fake_runner, monkeypatch, capsys):
+    backup = tmp_path / "hosts.wp-dev-env.bak"
+    backup.write_text("")
+    hosts_file = tmp_path / "hosts"
+    hosts_file.write_text("127.0.0.1\tlocalhost\n")
+    monkeypatch.setattr(devenv.hosts, "BACKUP_FILE", backup)
+    monkeypatch.setattr(devenv.hosts, "HOSTS_FILE", hosts_file)
+    monkeypatch.setattr(devenv, "load_state", lambda: {})
+    monkeypatch.setattr(devenv, "STATE_FILE", tmp_path / "state.json")
+    monkeypatch.setattr(devenv, "CA_CERT_FILE", tmp_path / "root.crt")
+    monkeypatch.setattr(devenv, "MAIN_DIR", tmp_path)
+
+    devenv.uninstall(fake_runner(lambda args: (1, "")), tmp_path, assume_yes=True)
+    assert f"sudo rm {backup}" in capsys.readouterr().out
+    assert backup.exists()

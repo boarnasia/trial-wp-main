@@ -1,0 +1,14 @@
+# 個人用のフォルダ
+.local/
+
+# 秘密値を含むため .env.example だけを管理する
+.env
+
+# WordPress が生成・同梱するもの
+wp-content/uploads/
+wp-content/upgrade/
+wp-content/cache/
+wp-content/languages/
+wp-content/themes/twenty*/
+wp-content/plugins/akismet/
+wp-content/plugins/hello.php

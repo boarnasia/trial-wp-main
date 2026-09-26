@@ -1,0 +1,37 @@
+# 一括起動: Caddy と wp-wp1 / wp-wp2 の全サービスを 1 プロジェクトとして起動する
+# 各サイトの .env は include 先のディレクトリから読み込まれる
+name: wp-main
+
+include:
+  - ../wp-wp1/docker-compose.yml
+  - ../wp-wp2/docker-compose.yml
+
+services:
+  caddy:
+    image: caddy:2
+    container_name: wp-caddy
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    environment:
+      WP1_DOMAIN: ${WP1_DOMAIN}
+      WP2_DOMAIN: ${WP2_DOMAIN}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    networks:
+      - wp-global-net
+
+networks:
+  wp-global-net:
+    external: true
+
+volumes:
+  # 内部 CA の鍵を保持し、down/up でキーチェーンの信頼登録が無効にならないようにする
+  caddy_data:
+    name: wp-caddy-data
+  caddy_config:
+    name: wp-caddy-config

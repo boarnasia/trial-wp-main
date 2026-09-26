@@ -1,0 +1,79 @@
+# {{TITLE}}
+# 単体起動: このディレクトリで docker compose up -d（事前に docker network create wp-global-net）
+# 一括起動: wp-main から include される。サービス名・ボリューム名は include 時の衝突を避けるためサイト接頭辞付き
+x-wordpress-env: &wordpress-env
+  WORDPRESS_DB_HOST: {{SITE_ID}}-db
+  WORDPRESS_DB_NAME: ${MYSQL_DATABASE}
+  WORDPRESS_DB_USER: ${MYSQL_USER}
+  WORDPRESS_DB_PASSWORD: ${MYSQL_PASSWORD}
+  WORDPRESS_TABLE_PREFIX: ${WP_TABLE_PREFIX:-wp_}
+  WORDPRESS_DEBUG: ${WP_DEBUG:-1}
+  WP_HOME: ${WP_HOME}
+  WORDPRESS_CONFIG_EXTRA: "require_once '/usr/local/etc/wordpress/wp-config-proxy.php';"
+
+x-wordpress-volumes: &wordpress-volumes
+  - {{SITE_ID}}-html:/var/www/html
+  - ./wp-content:/var/www/html/wp-content
+  - ./config/wp-config-proxy.php:/usr/local/etc/wordpress/wp-config-proxy.php:ro
+
+services:
+  {{SITE_ID}}-db:
+    image: mysql:8.0
+    # 固定名にして、単体起動と一括起動で同じ DB ボリュームを二重に使うのを防ぐ
+    container_name: {{SITE_ID}}-db
+    restart: unless-stopped
+    environment:
+      MYSQL_DATABASE: ${MYSQL_DATABASE}
+      MYSQL_USER: ${MYSQL_USER}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD}
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+    volumes:
+      - {{SITE_ID}}-db-data:/var/lib/mysql
+    networks:
+      - {{SITE_ID}}-internal
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -uroot -p$$MYSQL_ROOT_PASSWORD --silent"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 20s
+
+  {{SITE_ID}}-wordpress:
+    image: ${WP_IMAGE}
+    container_name: {{SITE_ID}}-wordpress
+    restart: unless-stopped
+    depends_on:
+      {{SITE_ID}}-db:
+        condition: service_healthy
+    environment: *wordpress-env
+    volumes: *wordpress-volumes
+    ports:
+      - "127.0.0.1:${WP_DEBUG_PORT}:80"
+    networks:
+      - {{SITE_ID}}-internal
+      - wp-global-net
+
+  {{SITE_ID}}-cli:
+    image: wordpress:cli
+    profiles: [cli]
+    # wordpress:cli (alpine) の www-data は uid 82 のため、apache イメージの www-data (33) に合わせる
+    user: "33:33"
+    depends_on:
+      {{SITE_ID}}-db:
+        condition: service_healthy
+    environment: *wordpress-env
+    volumes: *wordpress-volumes
+    networks:
+      - {{SITE_ID}}-internal
+
+networks:
+  {{SITE_ID}}-internal:
+  wp-global-net:
+    external: true
+
+volumes:
+  # 単体起動と一括起動でプロジェクト名が変わってもデータを共有するため名前を固定する
+  {{SITE_ID}}-db-data:
+    name: {{SITE_ID}}-db-data
+  {{SITE_ID}}-html:
+    name: {{SITE_ID}}-html
