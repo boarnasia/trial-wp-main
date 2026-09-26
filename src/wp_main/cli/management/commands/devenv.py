@@ -3,18 +3,16 @@ from typing import Annotated
 
 import typer
 
-from . import __version__, devenv, health, versioning
-from .config import resolve_root
-from .runner import DevEnvError, Runner
+from django_typer.management import Typer
 
-app = typer.Typer(
-    help="wp-main: マルチリポジトリ WordPress 開発環境の管理 CLI",
-    no_args_is_help=True,
-    add_completion=False,
-)
+from .... import __version__, devenv, health, versioning
+from ....config import resolve_root
+from ....runner import DevEnvError, Runner
+
+app = Typer(help="wp-main: マルチリポジトリ WordPress 開発環境の管理 CLI")
 
 # 移行そのものや状態の確認、情報表示では警告を出さない
-NO_VERSION_WARNING = {"dev-env:migrate", "dev-env:check-health", "help", "version"}
+NO_VERSION_WARNING = {"migrate", "check-health", "version"}
 
 
 @app.callback()
@@ -44,7 +42,7 @@ def run_guarded(action) -> None:
         raise typer.Exit(1) from error
 
 
-@app.command("dev-env:install")
+@app.command("install")
 def install(
     root: RootOption = None,
     no_start: Annotated[bool, typer.Option("--no-start", help="コンテナの起動と CA 登録を行わない")] = False,
@@ -57,7 +55,7 @@ def install(
     )
 
 
-@app.command("dev-env:uninstall")
+@app.command("uninstall")
 def uninstall(
     root: RootOption = None,
     yes: Annotated[bool, typer.Option("--yes", "-y", help="確認プロンプトを省略する")] = False,
@@ -67,7 +65,7 @@ def uninstall(
     run_guarded(lambda: devenv.uninstall(Runner(dry_run), resolve_root(root), assume_yes=yes))
 
 
-@app.command("dev-env:migrate")
+@app.command("migrate")
 def migrate(
     root: RootOption = None,
     auto: Annotated[bool, typer.Option("--auto", help="自動で実行できる場合だけ移行する（git のフック用）")] = False,
@@ -95,7 +93,7 @@ STATUS_COLORS = {
 }
 
 
-@app.command("dev-env:check-health")
+@app.command("check-health")
 def check_health(
     root: RootOption = None,
     as_json: Annotated[bool, typer.Option("--json", help="結果を JSON で出力する")] = False,
@@ -118,12 +116,6 @@ def check_health(
         typer.echo("\n" + " / ".join(f"{status} {count}" for status, count in summary.items()))
     if summary[health.FAIL]:
         raise typer.Exit(1)
-
-
-@app.command("help")
-def show_help(ctx: typer.Context) -> None:
-    """コマンド一覧を表示する。"""
-    typer.echo(ctx.parent.get_help())
 
 
 @app.command("version")

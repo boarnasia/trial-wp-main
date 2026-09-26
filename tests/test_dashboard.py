@@ -1,7 +1,6 @@
 import pytest
-from fastapi.testclient import TestClient
+from django.test import Client
 
-from wp_main.dashboard.app import app
 from wp_main.dashboard.data import load_sites, wordpress_version
 
 WP1_ENV = """\
@@ -25,7 +24,7 @@ def sites_dir(tmp_path, monkeypatch):
 
 @pytest.fixture
 def client(sites_dir):
-    return TestClient(app)
+    return Client()
 
 
 def test_version_from_image_tag():
@@ -90,7 +89,7 @@ def test_password_api_reads_env_each_time(client, sites_dir):
     first = client.get("/api/sites/wp1/password")
     assert first.status_code == 200
     assert first.json() == {"password": "secret-wp1"}
-    assert first.headers["cache-control"] == "no-store"
+    assert first.headers["Cache-Control"] == "no-store"
 
     (sites_dir / "wp1" / ".env").write_text(WP1_ENV.replace("secret-wp1", "changed"))
     assert client.get("/api/sites/wp1/password").json() == {"password": "changed"}
@@ -99,7 +98,7 @@ def test_password_api_reads_env_each_time(client, sites_dir):
 def test_password_api_unknown_site(client):
     response = client.get("/api/sites/wp9/password")
     assert response.status_code == 404
-    assert response.headers["cache-control"] == "no-store"
+    assert response.headers["Cache-Control"] == "no-store"
 
 
 def test_healthz(client):
@@ -113,3 +112,26 @@ def test_index_supports_head(client):
 def test_login_link_opens_new_tab(client):
     html = client.get("/").text
     assert 'href="https://local.wp1.yamashita109.com/wp-login.php" target="_blank" rel="noopener noreferrer"' in html
+
+
+def test_url_label_strips_scheme_and_slash(sites_dir):
+    wp1, _ = load_sites()
+    assert wp1.url_label == "local.wp1.yamashita109.com"
+
+
+def test_static_files_are_served(client):
+    for name in ("dashboard.css", "dashboard.js"):
+        response = client.get(f"/static/{name}")
+        assert response.status_code == 200
+        assert b"".join(response.streaming_content if response.streaming else [response.content])
+
+
+def test_index_rejects_post(client):
+    assert client.post("/").status_code == 405
+
+
+def test_favicon(client):
+    assert 'rel="icon" href="/static/favicon.svg"' in client.get("/").content.decode()
+    response = client.get("/favicon.ico")
+    assert response.status_code == 301 and response.headers["Location"] == "/static/favicon.svg"
+    assert client.get("/static/favicon.svg").status_code == 200

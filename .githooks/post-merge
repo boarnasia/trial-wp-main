@@ -2,5 +2,5 @@
 # git pull（merge）の後に、自動で実行できる環境の migration を適用する。失敗しても pull は妨げない
 cd "$(git rev-parse --show-toplevel)" || exit 0
 command -v uv >/dev/null 2>&1 || exit 0
-uv run --quiet cli dev-env:migrate --auto || true
+uv run --quiet manage.py devenv migrate --auto || true
 exit 0

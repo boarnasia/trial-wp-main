@@ -1,9 +1,4 @@
-# dev-env-health Specification
-
-## Purpose
-`devenv install` で構築した開発環境が正しく動いているかを 1 コマンドで確かめ、壊れている箇所と対処方法を示す。
-
-## Requirements
+## MODIFIED Requirements
 
 ### Requirement: 読み取りだけで確認する
 `devenv check-health` は、ファイル・Docker リソース・ホスト OS の設定を変更してはならない (MUST NOT)。sudo を必要とするコマンドを実行してはならない (MUST NOT)。`--root <path>` を `devenv install` と同じ意味で受け付けなければならない (MUST)。
@@ -46,17 +41,6 @@ CLI は次の項目をサイトごと（該当するもの）に確認し、各�
 #### Scenario: ダッシュボードのドメインが hosts にない
 - **WHEN** hosts のブロックにダッシュボードのドメインがない（migration 2 が未適用の）状態で実行する
 - **THEN** ダッシュボードの名前解決の項目が FAIL になり、ダッシュボードの HTTP の項目は SKIP になる
-
-### Requirement: 前提が満たされない項目のスキップ
-ある項目の前提となる項目が FAIL または SKIP の場合、CLI はその項目を実行せずに SKIP と判定し、理由を表示しなければならない (MUST)。SKIP は失敗として数えてはならない (MUST NOT)。
-
-#### Scenario: コンテナが停止している
-- **WHEN** wp-main で `docker compose stop` した後に実行する
-- **THEN** コンテナの項目が FAIL になり、HTTP と WordPress の項目は SKIP になり、理由としてコンテナが起動していないことが表示される
-
-#### Scenario: サイトリポジトリがない
-- **WHEN** `{root}/wp-wp1` が存在しない状態で実行する
-- **THEN** wp-wp1 のリポジトリの項目が FAIL になり、wp-wp1 の `.env` の項目は SKIP になる
 
 ### Requirement: 出力と終了コード
 CLI は既定で、グループごとに項目・判定・メッセージ・対処方法を人が読める形で表示し、最後に判定ごとの件数を表示しなければならない (MUST)。`--json` が指定された場合は、全項目（ID、グループ、判定、メッセージ、対処方法）と全体の結果を 1 つの JSON オブジェクトとして標準出力に出力し、それ以外を標準出力に出してはならない (MUST)。FAIL が 1 つ以上あれば終了コード 1、なければ 0 で終了しなければならない (MUST)。

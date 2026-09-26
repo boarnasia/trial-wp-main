@@ -36,6 +36,9 @@ services:
     image: wp-main-dashboard
     container_name: wp-dashboard
     restart: unless-stopped
+    # :? で必須にすると、キーのない環境で docker compose down まで失敗する
+    environment:
+      DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY:-}
     # ファイル単体のマウントだと、エディタが置き換え保存したときに古い .env を読み続ける
     volumes:
       - ../wp-wp1:/sites/wp1:ro

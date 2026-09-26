@@ -1,9 +1,4 @@
-# dev-env-versioning Specification
-
-## Purpose
-開発者ごとの環境がどの構成で作られたかを記録し、wp-main を更新したときに必要な移行を安全に、できるだけ自動で適用する。
-
-## Requirements
+## MODIFIED Requirements
 
 ### Requirement: 環境バージョンの記録
 CLI は、コードに含まれる migration の最大番号を最新のバージョンとして扱わなければならない (MUST)。導入済みのバージョンは `.local/dev-env-state.json` の `env_version` に記録しなければならない (MUST)。`env_version` がなく、サイトリポジトリのディレクトリが存在する環境は、バージョン 1 とみなさなければならない (MUST)。
@@ -87,6 +82,8 @@ wp-main は、`git pull` の後に `devenv migrate --auto` を実行する post-
 #### Scenario: 古い環境で uninstall する
 - **WHEN** 導入済みのバージョンが古い状態で `devenv uninstall --dry-run` を実行する
 - **THEN** 標準エラー出力に警告が表示され、その後に uninstall の dry-run が通常どおり実行される
+
+## ADDED Requirements
 
 ### Requirement: dev-env:migration と django:migration の区別
 この仕様の migration（dev-env:migration）は、開発環境のリソースを移行するものであり、Django の DB スキーマを移行する django:migration とは別に扱わなければならない (MUST)。`uv run manage.py devenv migrate` は dev-env:migration だけを実行し、django:migration を実行してはならない (MUST NOT)。`uv run manage.py migrate` は django:migration だけを実行し、dev-env:migration の実行や `env_version` の変更をしてはならない (MUST NOT)。環境バージョンは Django の DB ではなく `.local/dev-env-state.json` に記録しなければならない (MUST)。

@@ -4,9 +4,8 @@ import sys
 from pathlib import Path
 
 import pytest
-from typer.testing import CliRunner
 
-from wp_main import cli, devenv, trust, versioning
+from wp_main import devenv, health, trust, versioning
 from wp_main.config import SITES
 from wp_main.runner import DevEnvError
 
@@ -231,40 +230,42 @@ def test_disable_hooks(fake_runner, current, expect_unset):
 # 3.3
 
 
-def test_outdated_warning(monkeypatch):
+def test_outdated_warning(monkeypatch, manage):
     monkeypatch.setattr(versioning, "outdated_message", lambda root: "OUTDATED")
     monkeypatch.setattr(devenv, "uninstall", lambda *a, **k: print("uninstall ran"))
-    result = CliRunner().invoke(cli.app, ["dev-env:uninstall", "--dry-run"])
+    result = manage("devenv", "uninstall", "--dry-run")
     assert "OUTDATED" in result.stderr
     assert "uninstall ran" in result.stdout
 
 
-@pytest.mark.parametrize("command", ["dev-env:migrate", "dev-env:check-health", "help", "version"])
-def test_no_warning_for_exempt_commands(monkeypatch, command):
+@pytest.mark.parametrize(
+    "command", [("devenv", "migrate"), ("devenv", "check-health"), ("devenv", "version"), ("help", "devenv")]
+)
+def test_no_warning_for_exempt_commands(monkeypatch, manage, command):
     monkeypatch.setattr(versioning, "outdated_message", lambda root: "OUTDATED")
     monkeypatch.setattr(versioning, "migrate", lambda *a, **k: 0)
-    monkeypatch.setattr(cli.health, "run_health", lambda ctx: [])
-    result = CliRunner().invoke(cli.app, [command])
+    monkeypatch.setattr(health, "run_health", lambda ctx: [])
+    result = manage(*command)
     assert "OUTDATED" not in result.stderr
 
 
-def test_auto_survives_broken_migration(monkeypatch):
+def test_auto_survives_broken_migration(monkeypatch, manage):
     def broken(*args, **kwargs):
         raise SyntaxError("invalid syntax in m0002")
 
     monkeypatch.setattr(versioning, "migrate", broken)
-    result = CliRunner().invoke(cli.app, ["dev-env:migrate", "--auto"])
+    result = manage("devenv", "migrate", "--auto")
     assert result.exit_code == 0
     assert "m0002" in result.stderr
 
 
-def test_warning_failure_does_not_block_command(monkeypatch):
+def test_warning_failure_does_not_block_command(monkeypatch, manage):
     def broken(root):
         raise ImportError("cannot import m0002")
 
     monkeypatch.setattr(versioning, "outdated_message", broken)
     monkeypatch.setattr(devenv, "uninstall", lambda *a, **k: print("uninstall ran"))
-    result = CliRunner().invoke(cli.app, ["dev-env:uninstall", "--dry-run"])
+    result = manage("devenv", "uninstall", "--dry-run")
     assert result.exit_code == 0
     assert "uninstall ran" in result.stdout
     assert "確認できません" in result.stderr

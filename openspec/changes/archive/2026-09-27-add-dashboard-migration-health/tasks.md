@@ -10,4 +10,4 @@
 ## 3. ドキュメントと確認
 
 - [x] 3.1 README のダッシュボードの節の案内を `dev-env:migrate` に変え、check-health の確認項目の表にダッシュボードを加える
-- [ ] 3.2 実環境で `uv run cli dev-env:migrate` と `uv run cli dev-env:check-health` を実行し、環境バージョンが 2 になり、ダッシュボードの項目を含めてすべて OK になることを確認する
+- [x] 3.2 実環境で `uv run cli dev-env:migrate` と `uv run cli dev-env:check-health` を実行し、環境バージョンが 2 になり、ダッシュボードの項目を含めてすべて OK になることを確認する

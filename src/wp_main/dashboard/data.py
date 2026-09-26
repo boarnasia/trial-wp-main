@@ -23,6 +23,10 @@ class SiteView:
     user: str | None = None
     has_password: bool = False
 
+    @property
+    def url_label(self) -> str | None:
+        return self.url.removeprefix("https://").strip("/") if self.url else None
+
 
 def sites_dir() -> Path:
     return Path(os.environ.get("DASHBOARD_SITES_DIR", DEFAULT_SITES_DIR))

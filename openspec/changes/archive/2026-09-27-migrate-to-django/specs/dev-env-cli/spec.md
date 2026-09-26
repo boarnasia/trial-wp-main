@@ -1,9 +1,4 @@
-# dev-env-cli Specification
-
-## Purpose
-wp-main から 1 コマンドでマルチリポジトリ WordPress 開発環境を構築・破棄できるようにし、ホスト OS と Docker に残るリソースを CLI が一元管理する。
-
-## Requirements
+## MODIFIED Requirements
 
 ### Requirement: CLI エントリポイント
 wp-main ディレクトリで `uv run manage.py devenv <command>` を実行したとき、CLI は `install`、`uninstall`、`check-health`、`migrate`、`version` の各サブコマンドを受け付けなければならない (MUST)。`uv run manage.py help devenv` はサブコマンドの一覧を表示しなければならない (MUST)。旧来の `uv run cli` は、どの引数で実行されても何も変更せず、対応する新しいコマンドを表示して 0 以外の終了コードで終了しなければならない (MUST)。

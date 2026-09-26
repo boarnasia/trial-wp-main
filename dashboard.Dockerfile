@@ -18,4 +18,5 @@ RUN uv sync --frozen --no-dev --extra dashboard --no-editable
 
 USER nobody
 EXPOSE 8000
-CMD ["uvicorn", "wp_main.dashboard.app:app", "--host", "0.0.0.0", "--port", "8000", "--proxy-headers", "--forwarded-allow-ips", "*"]
+ENV DJANGO_SETTINGS_MODULE=wp_main.settings
+CMD ["gunicorn", "wp_main.wsgi:application", "--bind", "0.0.0.0:8000", "--workers", "2", "--access-logfile", "-"]

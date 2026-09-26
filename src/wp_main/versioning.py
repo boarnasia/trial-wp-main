@@ -9,14 +9,14 @@ from types import ModuleType
 
 import typer
 
-from . import migrations as default_package
+from .devenv import migrations as default_package
 from . import trust
 from .config import MAIN_DIR, SITES, Site
 from .runner import DevEnvError, Runner
 
 BASE_VERSION = 1
 MODULE_NAME = re.compile(r"^m(\d{4})_[a-z0-9_]+$")
-MIGRATE_COMMAND = "uv run cli dev-env:migrate"
+MIGRATE_COMMAND = "uv run manage.py devenv migrate"
 
 
 @dataclass
@@ -96,7 +96,7 @@ def migrate(
     installed = installed_version(root)
 
     if installed is None:
-        typer.echo("環境が導入されていません。uv run cli dev-env:install を実行してください")
+        typer.echo("環境が導入されていません。uv run manage.py devenv install を実行してください")
         return failure
     if installed == newest:
         typer.echo(f"環境バージョン {installed} は最新です")

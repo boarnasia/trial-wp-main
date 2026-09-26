@@ -140,7 +140,7 @@ def test_existing_install_keeps_version(env, fake_runner, monkeypatch, capsys):
     monkeypatch.setattr(versioning, "latest", lambda: 3)
     devenv.install(fake_runner(responder()), root, start=False, trust=True)
     assert trust.load_state()["env_version"] == 1
-    assert "dev-env:migrate" in capsys.readouterr().out
+    assert "devenv migrate" in capsys.readouterr().out
 
 
 def test_install_enables_hooks(env, fake_runner):

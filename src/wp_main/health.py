@@ -25,7 +25,7 @@ CURL_TIMEOUT = "5"
 CURL_SSL_ERROR = 60
 CADDY_CONTAINER = "wp-caddy"
 DASHBOARD_CONTAINER = "wp-dashboard"
-INSTALL_HINT = "uv run cli dev-env:install を実行してください"
+INSTALL_HINT = "uv run manage.py devenv install を実行してください"
 
 
 @dataclass
@@ -256,7 +256,7 @@ def ca_check(ctx: HealthContext) -> Check:
         return Result(
             WARN,
             f"Caddy の現在の CA（SHA-1 {sha1}）がキーチェーンに登録されていません。ブラウザで証明書の警告が出ます",
-            "uv run cli dev-env:install を --skip-trust なしで実行してください",
+            "uv run manage.py devenv install を --skip-trust なしで実行してください",
         )
 
     return Check("host.ca", "host", "Caddy ローカル CA の信頼登録", run, (f"container.{CADDY_CONTAINER}",))
@@ -303,7 +303,7 @@ def http_checks(ctx: HealthContext) -> list[Check]:
                 return Result(
                     WARN,
                     f"HTTP {response.code}。ただし証明書を検証できません",
-                    "uv run cli dev-env:install を --skip-trust なしで実行してください",
+                    "uv run manage.py devenv install を --skip-trust なしで実行してください",
                 )
             return Result(OK, f"HTTP {response.code}")
 
@@ -361,7 +361,7 @@ def dashboard_http_checks(ctx: HealthContext) -> list[Check]:
             return Result(
                 WARN,
                 f"HTTP {response.code}。ただし証明書を検証できません",
-                "uv run cli dev-env:install を --skip-trust なしで実行してください",
+                "uv run manage.py devenv install を --skip-trust なしで実行してください",
             )
         return Result(OK, f"HTTP {response.code}")
 

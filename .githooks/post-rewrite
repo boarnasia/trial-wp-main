@@ -3,5 +3,5 @@
 [ "$1" = "rebase" ] || exit 0
 cd "$(git rev-parse --show-toplevel)" || exit 0
 command -v uv >/dev/null 2>&1 || exit 0
-uv run --quiet cli dev-env:migrate --auto || true
+uv run --quiet manage.py devenv migrate --auto || true
 exit 0

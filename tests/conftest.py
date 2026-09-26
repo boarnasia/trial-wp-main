@@ -1,7 +1,9 @@
 import subprocess
 from collections.abc import Callable
+from dataclasses import dataclass
 
 import pytest
+from django.core.management import ManagementUtility
 
 from wp_main.runner import DevEnvError, Runner
 
@@ -28,3 +30,27 @@ class FakeRunner(Runner):
 @pytest.fixture
 def fake_runner():
     return FakeRunner
+
+
+@dataclass
+class ManageResult:
+    exit_code: int
+    stdout: str
+    stderr: str
+
+
+@pytest.fixture
+def manage(capsys):
+    """`manage.py` と同じ経路でコマンドを実行し、終了コードと出力を返す。"""
+
+    def run(*args: str) -> ManageResult:
+        capsys.readouterr()
+        try:
+            ManagementUtility(["manage.py", *args]).execute()
+            code = 0
+        except SystemExit as exit:
+            code = exit.code if isinstance(exit.code, int) else (0 if exit.code is None else 1)
+        captured = capsys.readouterr()
+        return ManageResult(code, captured.out, captured.err)
+
+    return run

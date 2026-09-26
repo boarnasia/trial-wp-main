@@ -4,9 +4,8 @@ import json
 from pathlib import Path
 
 import pytest
-from typer.testing import CliRunner
 
-from wp_main import cli, health, trust, versioning
+from wp_main import health, trust, versioning
 from wp_main.config import SITES
 from wp_main.health import FAIL, OK, SKIP, WARN, Check, HealthContext, Result, evaluate
 from wp_main.sites import render_site
@@ -200,13 +199,13 @@ def test_missing_https_redirect_is_fail(ctx_factory, world):
     assert statuses(ctx_factory())["http.redirect.wp1"] == FAIL
 
 
-def test_cli_json_and_exit_code(monkeypatch):
+def test_cli_json_and_exit_code(monkeypatch, manage):
     outcomes = [
         health.Outcome("a", "config", "a", OK, "fine"),
         health.Outcome("b", "host", "b", FAIL, "broken", "fix it"),
     ]
     monkeypatch.setattr(health, "run_health", lambda ctx: outcomes)
-    result = CliRunner().invoke(cli.app, ["dev-env:check-health", "--json"])
+    result = manage("devenv", "check-health", "--json")
     assert result.exit_code == 1
     payload = json.loads(result.stdout)
     assert payload["ok"] is False
@@ -214,15 +213,15 @@ def test_cli_json_and_exit_code(monkeypatch):
     assert set(payload["checks"][1]) >= {"id", "group", "status", "message", "hint"}
 
 
-def test_cli_warn_only_exits_zero(monkeypatch):
+def test_cli_warn_only_exits_zero(monkeypatch, manage):
     monkeypatch.setattr(health, "run_health", lambda ctx: [health.Outcome("a", "config", "a", WARN, "m", "h")])
-    result = CliRunner().invoke(cli.app, ["dev-env:check-health"])
+    result = manage("devenv", "check-health")
     assert result.exit_code == 0
     assert "→ h" in result.stdout
 
 
-def test_help_lists_check_health():
-    assert "dev-env:check-health" in CliRunner().invoke(cli.app, ["help"]).stdout
+def test_help_lists_check_health(manage):
+    assert "check-health" in manage("help", "devenv").stdout
 
 
 @pytest.mark.parametrize(
@@ -268,7 +267,7 @@ def test_dashboard_dns_failure_suggests_migrate(ctx_factory):
     ctx = ctx_factory(resolver=lambda domain: [] if domain == "local.wp-main.yamashita109.com" else ["127.0.0.1"])
     outcomes = {o.id: o for o in health.run_health(ctx)}
     assert outcomes["host.dns.dashboard"].status == FAIL
-    assert "dev-env:migrate" in outcomes["host.dns.dashboard"].hint
+    assert "devenv migrate" in outcomes["host.dns.dashboard"].hint
     assert outcomes["http.https.dashboard"].status == SKIP
     assert outcomes["http.redirect.dashboard"].status == SKIP
     assert outcomes["http.https.wp1"].status == OK

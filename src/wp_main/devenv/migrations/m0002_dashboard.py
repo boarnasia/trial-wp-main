@@ -1,8 +1,8 @@
 import typer
 
-from ..devenv import hosts_domains
-from ..docker import compose
-from .. import hosts
+from ... import hosts
+from ...docker import compose
+from .. import hosts_domains
 
 VERSION = 2
 DESCRIPTION = "ダッシュボードを導入し、プロキシのポートを 127.0.0.1 に限定する"

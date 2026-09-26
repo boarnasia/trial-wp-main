@@ -27,16 +27,18 @@ Caddy リバースプロキシ（内部 CA による HTTPS）と、両サイト�
 ## CLI
 
 ```bash
-uv run cli help                      # コマンド一覧
-uv run cli version
-uv run cli dev-env:check-health      # 環境が正常か確認（読み取りのみ）
-uv run cli dev-env:migrate           # 環境を最新の環境バージョンへ移行
-uv run cli dev-env:install           # 構築して起動（sudo のパスワードを求められる）
-uv run cli dev-env:install --dry-run # 実行内容の確認だけ
-uv run cli dev-env:uninstall         # 確認後にすべて削除（--yes で確認を省略）
+uv run manage.py help devenv                  # コマンド一覧
+uv run manage.py devenv version
+uv run manage.py devenv check-health          # 環境が正常か確認（読み取りのみ）
+uv run manage.py devenv migrate               # 環境を最新の環境バージョンへ移行
+uv run manage.py devenv install               # 構築して起動（sudo のパスワードを求められる）
+uv run manage.py devenv install --dry-run     # 実行内容の確認だけ
+uv run manage.py devenv uninstall             # 確認後にすべて削除（--yes で確認を省略）
 ```
 
-`dev-env:install` が行うこと:
+CLI はダッシュボードと同じ Django プロジェクトの management command（`devenv`）として動く。以前の `uv run cli dev-env:<name>` は廃止し、実行すると新しいコマンドを案内して終了する。
+
+`devenv install` が行うこと:
 
 1. `{root}/wp-wp1`、`{root}/wp-wp2` を clone する（リモートが空ならテンプレートから初期化してローカルにコミットする。push はしない）
 2. wp-main と各サイトの `.env` を `.env.example` から生成する（`change-me` はランダム値に置き換える。既存の `.env` は上書きしない）
@@ -47,7 +49,7 @@ uv run cli dev-env:uninstall         # 確認後にすべて削除（--yes で�
 
 主なオプション: `--root <dir>`（既定は wp-main の親）、`--no-start`、`--skip-trust`。
 
-`dev-env:uninstall` は、コンテナ・ボリューム・イメージ・ネットワーク・hosts ブロック・CA・サイトディレクトリ・`.local/` の状態ファイルを削除する。サイトに未コミットや未 push の変更があれば警告する。`/etc/hosts.wp-dev-env.bak` は復旧用に残し、削除コマンド（`sudo rm /etc/hosts.wp-dev-env.bak`）を最後に案内する。
+`devenv uninstall` は、コンテナ・ボリューム・イメージ・ネットワーク・hosts ブロック・CA・サイトディレクトリ・`.local/` の状態ファイルを削除する。サイトに未コミットや未 push の変更があれば警告する。`/etc/hosts.wp-dev-env.bak` は復旧用に残し、削除コマンド（`sudo rm /etc/hosts.wp-dev-env.bak`）を最後に案内する。
 
 管理者のユーザー名とパスワードは各サイトの `.env`（`WP_ADMIN_USER` / `WP_ADMIN_PASSWORD`）にある。
 
@@ -58,7 +60,8 @@ uv run cli dev-env:uninstall         # 確認後にすべて削除（--yes で�
 - 値は表示のたびに `../wp-wp1/.env` と `../wp-wp2/.env` から読み込む。`.env` を書き換えれば、再起動せずに次の表示から反映される
 - サイトディレクトリは読み取り専用でマウントしている
 - パスワードは伏せて表示し、表示ボタンかコピーボタンを押したときだけ取得する
-- この機能を入れる前に構築した環境では、`uv run cli dev-env:migrate` を実行する（migration 2。hosts にドメインを加えるため sudo のパスワードを求められ、pull 後の自動移行では実行されない）
+- この機能を入れる前に構築した環境では、`uv run manage.py devenv migrate` を実行する（dev-env:migration 2。hosts にドメインを加えるため sudo のパスワードを求められ、pull 後の自動移行では実行されない）
+- Django 版への切り替え（dev-env:migration 3）は、`git pull` の後に自動で適用される。wp-main の `.env` に `DJANGO_SECRET_KEY` を加え、プロキシが起動中ならダッシュボードを再ビルドする
 
 ## 公開範囲（PROXY_BIND_ADDRESS）
 
@@ -75,23 +78,30 @@ echo 'PROXY_BIND_ADDRESS=0.0.0.0' >> .env         # 常に公開する（実行�
 
 wp-main の更新には、pull するだけでは反映されない変更（ボリューム名の変更、`.env` への変数の追加など）がある。これを migration として配り、環境バージョンで適用状況を管理する。
 
-- 最新のバージョン: `src/wp_main/migrations/` にある migration の最大番号（migration がなければ 1）
+migration は 2 種類あり、呼び分ける。この節の migration は dev-env:migration を指す。
+
+| 呼び方 | 対象 | 置き場所 | 実行 | 記録先 |
+| --- | --- | --- | --- | --- |
+| dev-env:migration | 開発環境のリソース（hosts、ボリューム、`.env` など） | `src/wp_main/devenv/migrations/` | `uv run manage.py devenv migrate` | `.local/dev-env-state.json` |
+| django:migration | Django の DB スキーマ | 各 Django app の `migrations/` | `uv run manage.py migrate` | `.local/db.sqlite3` |
+
+- 最新のバージョン: `src/wp_main/devenv/migrations/` にある migration の最大番号（migration がなければ 1）
 - 導入済みのバージョン: `.local/dev-env-state.json` の `env_version`（マシンごと、git の管理外）。記録がない既存の環境は 1 とみなす
 
 ```bash
-uv run cli dev-env:migrate           # 未適用の migration を順に実行
-uv run cli dev-env:migrate --dry-run # 実行する migration の一覧だけ表示
+uv run manage.py devenv migrate               # 未適用の migration を順に実行
+uv run manage.py devenv migrate --dry-run     # 実行する migration の一覧だけ表示
 ```
 
-`dev-env:install` は wp-main の `core.hooksPath` を `.githooks` に設定する。これにより、`git pull`（merge と rebase の両方）の後に `dev-env:migrate --auto` が自動で動く。
-自動で実行するのは、sudo もデータの削除も必要とせず、Docker に接続できる場合だけ。それ以外は何もせずに、端末で `uv run cli dev-env:migrate` を実行するよう表示する。
+`devenv install` は wp-main の `core.hooksPath` を `.githooks` に設定する。これにより、`git pull`（merge と rebase の両方）の後に `devenv migrate --auto` が自動で動く。
+自動で実行するのは、sudo もデータの削除も必要とせず、Docker に接続できる場合だけ。それ以外は何もせずに、端末で `uv run manage.py devenv migrate` を実行するよう表示する。
 install 済みの環境でフックだけを有効にするには、`git config core.hooksPath .githooks` を実行する。
 
-環境バージョンが古いと、CLI の各コマンドが警告を出し、`dev-env:check-health` は WARN を出す。
+環境バージョンが古いと、`devenv` の各サブコマンドが警告を出し、`devenv check-health` は WARN を出す。
 
 ### migration の書き方
 
-`src/wp_main/migrations/m0002_<名前>.py` のように、2 からの連番で 1 ファイルずつ追加する。
+`src/wp_main/devenv/migrations/m0002_<名前>.py` のように、2 からの連番で 1 ファイルずつ追加する。
 
 ```python
 VERSION = 2                      # ファイル名の番号と同じ
@@ -133,8 +143,8 @@ curl -s -o /dev/null -w '%{http_code}\n' -H 'Host: local.wp2.yamashita109.com' -
 ## 検証
 
 ```bash
-uv run cli dev-env:check-health          # 各項目を OK / WARN / FAIL / SKIP で表示
-uv run cli dev-env:check-health --json   # 機械向け（CI やスクリプトから使う）
+uv run manage.py devenv check-health          # 各項目を OK / WARN / FAIL / SKIP で表示
+uv run manage.py devenv check-health --json   # 機械向け（CI やスクリプトから使う）
 ```
 
 sudo は使わず、環境も変更しない。確認する項目は次のとおり。
@@ -154,7 +164,11 @@ sudo は使わず、環境も変更しない。確認する項目は次のとお
 
 ```bash
 uv run pytest
-DASHBOARD_SITES_DIR=/path/to/sites uv run uvicorn wp_main.dashboard.app:app --reload   # ダッシュボードだけをローカルで起動（<dir>/wp1/.env と <dir>/wp2/.env を読む）
+DASHBOARD_SITES_DIR=/path/to/sites DJANGO_DEBUG=1 uv run manage.py runserver   # ダッシュボードだけをローカルで起動（<dir>/wp1/.env と <dir>/wp2/.env を読む）
 ```
+
+ダッシュボードと CLI は 1 つの Django プロジェクト（`manage.py`、`src/wp_main/settings.py`）にまとめている。ダッシュボードは app `wp_main.dashboard`（API は Django Ninja）、CLI は app `wp_main.cli` の management command。
+
+DB は SQLite（`.local/db.sqlite3`、git の管理外）を使う。今はモデルを持たない。書き込むのは Django の Web 側（ダッシュボードのコンテナ）だけにし、CLI から DB を更新する必要があるときは Web API を呼ぶ。macOS の Docker Desktop の bind mount では SQLite のファイルロックが信頼できないため。
 
 サイトの雛形は `templates/wp-site/` にある（`{{SITE_ID}}` などをサイトごとに置換する）。雛形は空のリモートを初期化するときだけ使う。初期化した後は、各サイトリポジトリ側を直接編集する。

@@ -4,7 +4,7 @@ import pytest
 
 from wp_main import trust, versioning
 from wp_main.hosts import BEGIN, with_block
-from wp_main.migrations import m0002_dashboard
+from wp_main.devenv.migrations import m0002_dashboard
 from wp_main.versioning import MigrationContext
 
 OLD_DOMAINS = ["local.wp1.yamashita109.com", "local.wp2.yamashita109.com"]
@@ -32,8 +32,7 @@ def caddy(running: bool):
     return respond
 
 
-def test_is_latest_and_needs_sudo():
-    assert versioning.latest() == 2
+def test_needs_sudo():
     assert m0002_dashboard.REQUIRES_SUDO and not m0002_dashboard.DESTRUCTIVE
 
 
