@@ -9,6 +9,8 @@ from .config import (
     CA_CERT_FILE,
     CADDY_IMAGE,
     CADDY_VOLUMES,
+    DASHBOARD_DOMAIN,
+    DASHBOARD_IMAGE,
     LOCAL_DIR,
     MAIN_DIR,
     MYSQL_IMAGE,
@@ -57,6 +59,10 @@ def install_wordpress(runner: Runner, site: Site, root: Path) -> None:
     )
 
 
+def hosts_domains() -> list[str]:
+    return [*(site.domain for site in SITES), DASHBOARD_DOMAIN]
+
+
 def install(runner: Runner, root: Path, *, start: bool, trust: bool) -> None:
     step(f"サイトリポジトリを準備 (root: {root})")
     for site in SITES:
@@ -72,7 +78,7 @@ def install(runner: Runner, root: Path, *, start: bool, trust: bool) -> None:
     typer.echo("  作成" if ensure_network(runner) else "  既存")
 
     step("/etc/hosts にエントリを登録（sudo）")
-    new_hosts = hosts.with_block(hosts.HOSTS_FILE.read_text(), [site.domain for site in SITES])
+    new_hosts = hosts.with_block(hosts.HOSTS_FILE.read_text(), hosts_domains())
     typer.echo("  更新" if hosts.write_hosts(runner, new_hosts) else "  変更なし")
 
     if not start:
@@ -81,7 +87,7 @@ def install(runner: Runner, root: Path, *, start: bool, trust: bool) -> None:
 
     step("コンテナを起動")
     check_ports(runner, PROXY_PORTS)
-    compose(runner, "up", "-d", "--wait")
+    compose(runner, "up", "-d", "--build", "--wait")
 
     if runner.dry_run:
         typer.echo("[dry-run] WordPress の初期セットアップと CA 登録は省略")
@@ -170,7 +176,7 @@ def uninstall(runner: Runner, root: Path, *, assume_yes: bool) -> None:
             runner.run(["docker", "volume", "rm", *existing])
 
     def remove_images() -> None:
-        images = {CADDY_IMAGE, MYSQL_IMAGE, WP_CLI_IMAGE}
+        images = {CADDY_IMAGE, MYSQL_IMAGE, WP_CLI_IMAGE, DASHBOARD_IMAGE}
         for site, path in zip(SITES, site_dirs):
             images.add(read_env(path).get("WP_IMAGE", site.image))
         for image in sorted(images):

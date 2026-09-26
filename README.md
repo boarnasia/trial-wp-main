@@ -8,6 +8,8 @@ Caddy リバースプロキシ（内部 CA による HTTPS）と、両サイト�
 | wp1 | `../wp-wp1`（trial-wp-wp1） | https://local.wp1.yamashita109.com/ | `wordpress:7.1-apache` | 127.0.0.1:8081 |
 | wp2 | `../wp-wp2`（trial-wp-wp2） | https://local.wp2.yamashita109.com/ | `wordpress:6.7-apache` | 127.0.0.1:8082 |
 
+ダッシュボード: https://local.wp-main.yamashita109.com/ （両サイトへのリンク、ログインリンク、管理者の ID/PW を表示する）
+
 ```
 {root}/
 ├── wp-main/   Caddyfile, docker-compose.yml（include で両サイトを取り込む）, CLI
@@ -47,6 +49,26 @@ uv run cli dev-env:uninstall         # 確認後にすべて削除（--yes で�
 
 管理者のユーザー名とパスワードは各サイトの `.env`（`WP_ADMIN_USER` / `WP_ADMIN_PASSWORD`）にある。
 
+## ダッシュボード
+
+`https://local.wp-main.yamashita109.com/` で、両サイトの URL・ログインリンク・デバッグ用ポート・管理者のユーザー名とパスワードを確認できる。
+
+- 値は表示のたびに `../wp-wp1/.env` と `../wp-wp2/.env` から読み込む。`.env` を書き換えれば、再起動せずに次の表示から反映される
+- サイトディレクトリは読み取り専用でマウントしている
+- パスワードは伏せて表示し、表示ボタンかコピーボタンを押したときだけ取得する
+- この機能を入れる前に構築した環境では、`uv run cli dev-env:install` を再実行して hosts とイメージを更新する
+
+## 公開範囲（PROXY_BIND_ADDRESS）
+
+Caddy の 80/443 は、既定で `127.0.0.1` にだけ公開する。実機のスマートフォンなど、LAN の他の端末から開くときだけ全インターフェースに公開する。
+
+```bash
+PROXY_BIND_ADDRESS=0.0.0.0 docker compose up -d   # その場だけ公開する
+echo 'PROXY_BIND_ADDRESS=0.0.0.0' >> .env         # 常に公開する（実行時の指定が .env より優先される）
+```
+
+`0.0.0.0` にすると、同じ LAN の端末からダッシュボードの管理者パスワードも見えるようになる。信頼できないネットワークでは使わない。
+
 ## 日常の操作（wp-main で実行）
 
 ```bash
@@ -72,10 +94,12 @@ curl -s -o /dev/null -w '%{http_code}\n' -H 'Host: local.wp2.yamashita109.com' -
 ## 検証
 
 ```bash
-docker compose ps                                                     # 5 コンテナが running
+docker compose ps                                                     # 6 コンテナが running（dashboard を含む）
 curl -sI https://local.wp1.yamashita109.com/ | head -1                # HTTP/2 200（証明書エラーなし）
 curl -sI http://local.wp2.yamashita109.com/ | grep -i '^location'     # https:// へリダイレクト
 curl -s https://local.wp1.yamashita109.com/ | grep -o 'WordPress [0-9.]*'
+curl -sI https://local.wp-main.yamashita109.com/ | head -1            # ダッシュボード: HTTP/2 200
+lsof -nP -iTCP:443 -sTCP:LISTEN                                       # 既定では 127.0.0.1 だけで待ち受ける
 security find-certificate -c "Caddy Local Authority" /Library/Keychains/System.keychain
 ```
 
@@ -85,6 +109,7 @@ security find-certificate -c "Caddy Local Authority" /Library/Keychains/System.k
 
 ```bash
 uv run pytest
+DASHBOARD_SITES_DIR=/path/to/sites uv run uvicorn wp_main.dashboard.app:app --reload   # ダッシュボードだけをローカルで起動（<dir>/wp1/.env と <dir>/wp2/.env を読む）
 ```
 
 サイトの雛形は `templates/wp-site/` にある（`{{SITE_ID}}` などをサイトごとに置換する）。雛形は空のリモートを初期化するときだけ使う。初期化した後は、各サイトリポジトリ側を直接編集する。

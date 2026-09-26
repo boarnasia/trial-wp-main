@@ -1,0 +1,6 @@
+# ダッシュボードのイメージに必要なのは pyproject.toml・uv.lock・src だけ
+*
+!pyproject.toml
+!uv.lock
+!src/
+**/__pycache__
