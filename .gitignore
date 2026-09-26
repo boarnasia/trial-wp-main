@@ -4,6 +4,13 @@
 # CodeGraph のローカル索引
 .codegraph/
 
+# 開発者個人の Compose 設定（Compose が自動で重ねて読む）
+compose.override.yaml
+docker-compose.override.yml
+
+# 他のエージェントが作業用に作る git worktree
+.claude/worktrees/
+
 # Python
 .venv/
 __pycache__/
