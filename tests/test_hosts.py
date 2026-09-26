@@ -63,3 +63,19 @@ def test_no_write_when_unchanged(tmp_path, fake_runner):
     runner = fake_runner()
     assert not write_hosts(runner, ORIGINAL, path=hosts)
     assert runner.calls == []
+
+
+def test_install_domains_include_dashboard():
+    from wp_main.config import DASHBOARD_DOMAIN
+    from wp_main.devenv import hosts_domains
+
+    assert hosts_domains() == [*DOMAINS, DASHBOARD_DOMAIN]
+
+
+def test_existing_block_is_replaced_with_dashboard_domain():
+    from wp_main.devenv import hosts_domains
+
+    text = with_block(with_block(ORIGINAL, DOMAINS), hosts_domains())
+    assert text.count(BEGIN) == 1 and text.count(END) == 1
+    assert "127.0.0.1\tlocal.wp-main.yamashita109.com" in text
+    assert all(f"127.0.0.1\t{domain}" in text for domain in DOMAINS)

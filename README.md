@@ -8,6 +8,8 @@ Caddy リバースプロキシ（内部 CA による HTTPS）と、両サイト�
 | wp1 | `../wp-wp1`（trial-wp-wp1） | https://local.wp1.yamashita109.com/ | `wordpress:7.1-apache` | 127.0.0.1:8081 |
 | wp2 | `../wp-wp2`（trial-wp-wp2） | https://local.wp2.yamashita109.com/ | `wordpress:6.7-apache` | 127.0.0.1:8082 |
 
+ダッシュボード: https://local.wp-main.yamashita109.com/ （両サイトへのリンク、ログインリンク、管理者の ID/PW を表示する）
+
 ```
 {root}/
 ├── wp-main/   Caddyfile, docker-compose.yml（include で両サイトを取り込む）, CLI
@@ -49,6 +51,26 @@ uv run cli dev-env:uninstall         # 確認後にすべて削除（--yes で�
 
 管理者のユーザー名とパスワードは各サイトの `.env`（`WP_ADMIN_USER` / `WP_ADMIN_PASSWORD`）にある。
 
+## ダッシュボード
+
+`https://local.wp-main.yamashita109.com/` で、両サイトの URL・ログインリンク・デバッグ用ポート・管理者のユーザー名とパスワードを確認できる。
+
+- 値は表示のたびに `../wp-wp1/.env` と `../wp-wp2/.env` から読み込む。`.env` を書き換えれば、再起動せずに次の表示から反映される
+- サイトディレクトリは読み取り専用でマウントしている
+- パスワードは伏せて表示し、表示ボタンかコピーボタンを押したときだけ取得する
+- この機能を入れる前に構築した環境では、`uv run cli dev-env:migrate` を実行する（migration 2。hosts にドメインを加えるため sudo のパスワードを求められ、pull 後の自動移行では実行されない）
+
+## 公開範囲（PROXY_BIND_ADDRESS）
+
+Caddy の 80/443 は、既定で `127.0.0.1` にだけ公開する。実機のスマートフォンなど、LAN の他の端末から開くときだけ全インターフェースに公開する。
+
+```bash
+PROXY_BIND_ADDRESS=0.0.0.0 docker compose up -d   # その場だけ公開する
+echo 'PROXY_BIND_ADDRESS=0.0.0.0' >> .env         # 常に公開する（実行時の指定が .env より優先される）
+```
+
+`0.0.0.0` にすると、同じ LAN の端末からダッシュボードの管理者パスワードも見えるようになる。信頼できないネットワークでは使わない。
+
 ## 環境バージョンと移行
 
 wp-main の更新には、pull するだけでは反映されない変更（ボリューム名の変更、`.env` への変数の追加など）がある。これを migration として配り、環境バージョンで適用状況を管理する。
@@ -77,7 +99,6 @@ DESCRIPTION = "wp1 の DB ボリューム名を変更"
 REQUIRES_SUDO = False            # True なら自動実行しない（端末での実行が必要）
 DESTRUCTIVE = False              # True なら自動実行せず、実行前に確認をとる
 LOSES = ""                       # DESTRUCTIVE のとき、失われるものを書く
-
 
 def up(ctx):                     # ctx.runner / ctx.root / ctx.main_dir / ctx.sites
     ...
@@ -121,9 +142,9 @@ sudo は使わず、環境も変更しない。確認する項目は次のとお
 | グループ | 項目 |
 | --- | --- |
 | 構成 | サイトリポジトリの origin、各 `.env` の有無と `change-me` の残り |
-| ホスト | 各ドメインの名前解決（127.0.0.1）、`wp-global-net`、Caddy の CA がキーチェーンに登録されているか |
-| コンテナ | Caddy と各サイトの WordPress・DB が running か（DB は healthy か） |
-| HTTP と WordPress | HTTPS の応答と証明書の検証、HTTP から HTTPS へのリダイレクト、インストール済みか、メジャーバージョン |
+| ホスト | 各サイトとダッシュボードのドメインの名前解決（127.0.0.1）、`wp-global-net`、Caddy の CA がキーチェーンに登録されているか |
+| コンテナ | Caddy・各サイトの WordPress と DB・ダッシュボードが running か（DB とダッシュボードは healthy か） |
+| HTTP と WordPress | 各サイトとダッシュボードの HTTPS の応答と証明書の検証、HTTP から HTTPS へのリダイレクト、WordPress がインストール済みか、メジャーバージョン |
 
 - 前提の項目が FAIL なら、その項目は SKIP になる（例: Caddy が止まっていれば HTTP の項目はすべて SKIP）。WARN と FAIL には対処方法が表示される。
 - FAIL が 1 つでもあれば終了コード 1、WARN だけなら 0。
@@ -133,6 +154,7 @@ sudo は使わず、環境も変更しない。確認する項目は次のとお
 
 ```bash
 uv run pytest
+DASHBOARD_SITES_DIR=/path/to/sites uv run uvicorn wp_main.dashboard.app:app --reload   # ダッシュボードだけをローカルで起動（<dir>/wp1/.env と <dir>/wp2/.env を読む）
 ```
 
 サイトの雛形は `templates/wp-site/` にある（`{{SITE_ID}}` などをサイトごとに置換する）。雛形は空のリモートを初期化するときだけ使う。初期化した後は、各サイトリポジトリ側を直接編集する。

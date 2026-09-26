@@ -1,0 +1,84 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>wp-main dashboard</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans+JP:wght@400;500;700&display=swap">
+<link rel="stylesheet" href="{{ url_for('static', path='dashboard.css') }}">
+</head>
+<body>
+<main class="page">
+  <header class="header">
+    <h1>wp-main</h1>
+    <span class="meta mono">{{ sites | length }} sites · Caddy internal CA</span>
+    <span class="meta header-note">ID/PW は ../wp-*/.env から読み込み</span>
+  </header>
+
+  <div class="table" role="table" aria-label="サイト一覧">
+    <div class="row head" role="row">
+      <div role="columnheader">サイト</div>
+      <div role="columnheader">URL</div>
+      <div role="columnheader">ユーザー名</div>
+      <div role="columnheader">パスワード</div>
+      <div role="columnheader">ログイン</div>
+    </div>
+    {% for s in sites %}
+    <div class="row" role="row">
+      <div role="cell" class="site">
+        <span class="mono site-id">{{ s.id }}</span>
+        {% if s.version %}<span class="sub">{{ s.version }}</span>{% endif %}
+      </div>
+      {% if not s.env_found %}
+      <div role="cell" class="problem span-rest">
+        {{ s.env_path }} が見つかりません。<code>uv run cli dev-env:install</code> で生成してください。
+      </div>
+      {% else %}
+      <div role="cell" class="stack">
+        {% if s.url %}<a class="mono" href="{{ s.url }}">{{ s.url | replace('https://', '') | trim('/') }}</a>{% else %}<span class="unset">WP_HOME 未設定</span>{% endif %}
+        {% if s.debug_port %}<span class="sub mono">debug {{ s.debug_port }}</span>{% endif %}
+      </div>
+      <div role="cell" class="inline">
+        {% if s.user %}
+        <span class="mono">{{ s.user }}</span>
+        <button type="button" class="icon" data-copy-text="{{ s.user }}" data-label="{{ s.id }} のユーザー名" aria-label="{{ s.id }} のユーザー名をコピー">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="11" height="11" rx="2"></rect><path d="M5 15V5a1 1 0 0 1 1-1h9"></path></svg>
+        </button>
+        {% else %}<span class="unset">未設定</span>{% endif %}
+      </div>
+      <div role="cell" class="inline">
+        {% if s.has_password %}
+        <span class="mono grow" data-password="{{ s.id }}">••••••••••••</span>
+        <button type="button" class="icon" data-toggle="{{ s.id }}" aria-pressed="false" aria-label="{{ s.id }} のパスワードを表示">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"></path><circle cx="12" cy="12" r="3"></circle></svg>
+        </button>
+        <button type="button" class="icon" data-copy-password="{{ s.id }}" aria-label="{{ s.id }} のパスワードをコピー">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="11" height="11" rx="2"></rect><path d="M5 15V5a1 1 0 0 1 1-1h9"></path></svg>
+        </button>
+        {% else %}
+        <span class="unset grow">未設定</span>
+        <button type="button" class="icon" disabled aria-label="{{ s.id }} のパスワードは未設定">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"></path><circle cx="12" cy="12" r="3"></circle></svg>
+        </button>
+        <button type="button" class="icon" disabled aria-label="{{ s.id }} のパスワードは未設定">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="11" height="11" rx="2"></rect><path d="M5 15V5a1 1 0 0 1 1-1h9"></path></svg>
+        </button>
+        {% endif %}
+      </div>
+      <div role="cell">
+        {% if s.login_url %}<a class="button" href="{{ s.login_url }}" target="_blank" rel="noopener noreferrer">wp-admin を開く</a>{% endif %}
+      </div>
+      {% if s.missing %}
+      <div role="cell" class="problem span-all">{{ s.env_path }} に未設定の項目があります: <span class="mono">{{ s.missing | join(', ') }}</span></div>
+      {% endif %}
+      {% endif %}
+    </div>
+    {% endfor %}
+  </div>
+  <div class="toast" role="status" aria-live="polite" id="toast"></div>
+</main>
+<script src="{{ url_for('static', path='dashboard.js') }}"></script>
+</body>
+</html>

@@ -20,6 +20,7 @@ CONTAINERS = [
     {"Name": "wp1-db", "State": "running", "Health": "healthy"},
     {"Name": "wp2-wordpress", "State": "running", "Health": ""},
     {"Name": "wp2-db", "State": "running", "Health": "healthy"},
+    {"Name": "wp-dashboard", "State": "running", "Health": "healthy"},
 ]
 
 
@@ -41,6 +42,8 @@ class World:
             "https://local.wp2.yamashita109.com/": (200, "", page("6.7.2")),
             "http://local.wp1.yamashita109.com/": (308, "https://local.wp1.yamashita109.com/", ""),
             "http://local.wp2.yamashita109.com/": (308, "https://local.wp2.yamashita109.com/", ""),
+            "https://local.wp-main.yamashita109.com/": (200, "", "<html>wp-main</html>"),
+            "http://local.wp-main.yamashita109.com/": (308, "https://local.wp-main.yamashita109.com/", ""),
         }
 
     def respond(self, args: list[str]) -> tuple[int, str]:
@@ -115,9 +118,10 @@ def test_evaluate_turns_exceptions_into_fail():
 
 
 def test_healthy_environment(ctx_factory):
+    versioning.record_latest()
     result = statuses(ctx_factory())
     assert set(result.values()) == {OK}
-    assert len(result) == 23
+    assert len(result) == 27
 
 
 def test_missing_repo_skips_env(ctx_factory, tmp_path):
@@ -244,3 +248,27 @@ def test_version_item_not_installed(ctx_factory, tmp_path):
     for site in SITES:
         shutil.rmtree(tmp_path / site.dir_name)
     assert statuses(ctx)["config.version"] == FAIL
+
+
+def test_stopped_dashboard_only_affects_dashboard(ctx_factory, world):
+    world.containers = [c for c in world.containers if c["Name"] != "wp-dashboard"]
+    result = statuses(ctx_factory())
+    assert result["container.wp-dashboard"] == FAIL
+    assert result["http.https.dashboard"] == SKIP
+    assert result["http.redirect.dashboard"] == OK
+    assert result["http.https.wp1"] == OK and result["http.https.wp2"] == OK
+
+
+def test_unhealthy_dashboard_is_fail(ctx_factory, world):
+    next(c for c in world.containers if c["Name"] == "wp-dashboard")["Health"] = "starting"
+    assert statuses(ctx_factory())["container.wp-dashboard"] == FAIL
+
+
+def test_dashboard_dns_failure_suggests_migrate(ctx_factory):
+    ctx = ctx_factory(resolver=lambda domain: [] if domain == "local.wp-main.yamashita109.com" else ["127.0.0.1"])
+    outcomes = {o.id: o for o in health.run_health(ctx)}
+    assert outcomes["host.dns.dashboard"].status == FAIL
+    assert "dev-env:migrate" in outcomes["host.dns.dashboard"].hint
+    assert outcomes["http.https.dashboard"].status == SKIP
+    assert outcomes["http.redirect.dashboard"].status == SKIP
+    assert outcomes["http.https.wp1"].status == OK

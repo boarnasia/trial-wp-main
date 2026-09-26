@@ -11,19 +11,43 @@ services:
     image: caddy:2
     container_name: wp-caddy
     restart: unless-stopped
+    # 既定はループバックだけ。LAN に公開するときは PROXY_BIND_ADDRESS=0.0.0.0 を .env か実行時に指定する
     ports:
-      - "80:80"
-      - "443:443"
-      - "443:443/udp"
+      - "${PROXY_BIND_ADDRESS:-127.0.0.1}:80:80"
+      - "${PROXY_BIND_ADDRESS:-127.0.0.1}:443:443"
+      - "${PROXY_BIND_ADDRESS:-127.0.0.1}:443:443/udp"
     environment:
       WP1_DOMAIN: ${WP1_DOMAIN}
       WP2_DOMAIN: ${WP2_DOMAIN}
+      # 既存の .env は上書きされないため、DASHBOARD_DOMAIN がない環境でも動くよう既定値を持たせる
+      DASHBOARD_DOMAIN: ${DASHBOARD_DOMAIN:-local.wp-main.yamashita109.com}
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
       - caddy_data:/data
       - caddy_config:/config
     networks:
       - wp-global-net
+
+  dashboard:
+    build:
+      context: .
+      dockerfile: dashboard.Dockerfile
+    # dev-env:uninstall が名前で削除できるよう固定する
+    image: wp-main-dashboard
+    container_name: wp-dashboard
+    restart: unless-stopped
+    # ファイル単体のマウントだと、エディタが置き換え保存したときに古い .env を読み続ける
+    volumes:
+      - ../wp-wp1:/sites/wp1:ro
+      - ../wp-wp2:/sites/wp2:ro
+    networks:
+      - wp-global-net
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/healthz')"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
 
 networks:
   wp-global-net:

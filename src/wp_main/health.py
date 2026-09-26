@@ -5,7 +5,7 @@ from collections.abc import Callable
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
-from .config import CADDY_ROOT_CERT, CADDY_SERVICE, MAIN_DIR, NETWORK, SITES, Site
+from .config import CADDY_ROOT_CERT, CADDY_SERVICE, DASHBOARD_DOMAIN, MAIN_DIR, NETWORK, SITES, Site
 from . import versioning
 from .runner import Runner
 from .sites import SECRET_PLACEHOLDER, read_env
@@ -24,6 +24,7 @@ CURL = "/usr/bin/curl"
 CURL_TIMEOUT = "5"
 CURL_SSL_ERROR = 60
 CADDY_CONTAINER = "wp-caddy"
+DASHBOARD_CONTAINER = "wp-dashboard"
 INSTALL_HINT = "uv run cli dev-env:install を実行してください"
 
 
@@ -212,20 +213,23 @@ def config_checks(ctx: HealthContext) -> list[Check]:
 
 def host_checks(ctx: HealthContext) -> list[Check]:
     checks = []
-    for site in SITES:
+    targets = [(site.id, site.domain, INSTALL_HINT) for site in SITES]
+    # ダッシュボードのドメインは migration 2 で hosts に加わるため、既存の環境では migrate を案内する
+    targets.append(("dashboard", DASHBOARD_DOMAIN, f"{versioning.MIGRATE_COMMAND} または {INSTALL_HINT}"))
+    for target_id, domain, hint in targets:
 
-        def dns(site=site) -> Result:
-            addresses = ctx.resolver(site.domain)
+        def dns(domain=domain, hint=hint) -> Result:
+            addresses = ctx.resolver(domain)
             if "127.0.0.1" in addresses:
-                return Result(OK, f"{site.domain} → 127.0.0.1")
+                return Result(OK, f"{domain} → 127.0.0.1")
             found = ", ".join(addresses) if addresses else "解決できません"
             return Result(
                 FAIL,
-                f"{site.domain} が 127.0.0.1 になりません（{found}）",
-                f"{INSTALL_HINT}。直後なら sudo killall -HUP mDNSResponder で DNS キャッシュを消してください",
+                f"{domain} が 127.0.0.1 になりません（{found}）",
+                f"{hint}。直後なら sudo killall -HUP mDNSResponder で DNS キャッシュを消してください",
             )
 
-        checks.append(Check(f"host.dns.{site.id}", "host", f"名前解決 {site.domain}", dns))
+        checks.append(Check(f"host.dns.{target_id}", "host", f"名前解決 {domain}", dns))
 
     def network() -> Result:
         if ctx.cmd(["docker", "network", "inspect", NETWORK]).returncode == 0:
@@ -260,7 +264,11 @@ def ca_check(ctx: HealthContext) -> Check:
 
 def container_checks(ctx: HealthContext) -> list[Check]:
     requires = (*(f"config.repo.{site.id}" for site in SITES), "host.network")
-    names = [CADDY_CONTAINER, *(name for site in SITES for name in (f"{site.id}-wordpress", f"{site.id}-db"))]
+    names = [
+        CADDY_CONTAINER,
+        *(name for site in SITES for name in (f"{site.id}-wordpress", f"{site.id}-db")),
+        DASHBOARD_CONTAINER,
+    ]
     checks = []
     for name in names:
 
@@ -271,7 +279,7 @@ def container_checks(ctx: HealthContext) -> list[Check]:
             state, health = info.get("State", ""), info.get("Health", "")
             if state != "running":
                 return Result(FAIL, f"状態: {state}", "wp-main で docker compose up -d を実行してください")
-            if name.endswith("-db") and health != "healthy":
+            if (name.endswith("-db") or name == DASHBOARD_CONTAINER) and health != "healthy":
                 return Result(FAIL, f"ヘルスチェック: {health or '未設定'}", f"docker compose logs {name} を確認してください")
             return Result(OK, f"{state}{f' ({health})' if health else ''}")
 
@@ -336,7 +344,40 @@ def http_checks(ctx: HealthContext) -> list[Check]:
             Check(f"http.version.{site.id}", "http", f"バージョン {site.domain}", version,
                   (f"http.installed.{site.id}",)),
         ]
-    return checks
+    return [*checks, *dashboard_http_checks(ctx)]
+
+
+def dashboard_http_checks(ctx: HealthContext) -> list[Check]:
+    https_url = f"https://{DASHBOARD_DOMAIN}/"
+    base_requires = ("host.dns.dashboard", f"container.{CADDY_CONTAINER}")
+
+    def https() -> Result:
+        response = ctx.fetch(https_url)
+        if isinstance(response, str):
+            return Result(FAIL, f"接続できません: {response}", "docker compose logs caddy を確認してください")
+        if response.code != 200:
+            return Result(FAIL, f"HTTP {response.code}", f"docker compose logs {DASHBOARD_CONTAINER} を確認してください")
+        if not response.verified:
+            return Result(
+                WARN,
+                f"HTTP {response.code}。ただし証明書を検証できません",
+                "uv run cli dev-env:install を --skip-trust なしで実行してください",
+            )
+        return Result(OK, f"HTTP {response.code}")
+
+    def redirect() -> Result:
+        response = ctx.fetch(f"http://{DASHBOARD_DOMAIN}/")
+        if isinstance(response, str):
+            return Result(FAIL, f"接続できません: {response}", "docker compose logs caddy を確認してください")
+        if response.code in (301, 302, 307, 308) and response.redirect.startswith(https_url):
+            return Result(OK, f"HTTP {response.code} → {response.redirect}")
+        return Result(FAIL, f"HTTP {response.code} → {response.redirect or '(なし)'}", "Caddyfile を確認してください")
+
+    return [
+        Check("http.https.dashboard", "http", f"HTTPS {DASHBOARD_DOMAIN}", https,
+              (*base_requires, f"container.{DASHBOARD_CONTAINER}")),
+        Check("http.redirect.dashboard", "http", f"HTTP → HTTPS {DASHBOARD_DOMAIN}", redirect, base_requires),
+    ]
 
 
 def build_checks(ctx: HealthContext) -> list[Check]:

@@ -15,6 +15,8 @@ CADDY_VOLUMES = ("wp-caddy-data", "wp-caddy-config")
 MYSQL_IMAGE = "mysql:8.0"
 WP_CLI_IMAGE = "wordpress:cli"
 PROXY_PORTS = (80, 443)
+DASHBOARD_DOMAIN = "local.wp-main.yamashita109.com"
+DASHBOARD_IMAGE = "wp-main-dashboard"
 
 
 @dataclass(frozen=True)
