@@ -29,6 +29,8 @@ Caddy リバースプロキシ（内部 CA による HTTPS）と、両サイト�
 ```bash
 uv run cli help                      # コマンド一覧
 uv run cli version
+uv run cli dev-env:check-health      # 環境が正常か確認（読み取りのみ）
+uv run cli dev-env:migrate           # 環境を最新の環境バージョンへ移行
 uv run cli dev-env:install           # 構築して起動（sudo のパスワードを求められる）
 uv run cli dev-env:install --dry-run # 実行内容の確認だけ
 uv run cli dev-env:uninstall         # 確認後にすべて削除（--yes で確認を省略）
@@ -69,6 +71,43 @@ echo 'PROXY_BIND_ADDRESS=0.0.0.0' >> .env         # 常に公開する（実行�
 
 `0.0.0.0` にすると、同じ LAN の端末からダッシュボードの管理者パスワードも見えるようになる。信頼できないネットワークでは使わない。
 
+## 環境バージョンと移行
+
+wp-main の更新には、pull するだけでは反映されない変更（ボリューム名の変更、`.env` への変数の追加など）がある。これを migration として配り、環境バージョンで適用状況を管理する。
+
+- 最新のバージョン: `src/wp_main/migrations/` にある migration の最大番号（migration がなければ 1）
+- 導入済みのバージョン: `.local/dev-env-state.json` の `env_version`（マシンごと、git の管理外）。記録がない既存の環境は 1 とみなす
+
+```bash
+uv run cli dev-env:migrate           # 未適用の migration を順に実行
+uv run cli dev-env:migrate --dry-run # 実行する migration の一覧だけ表示
+```
+
+`dev-env:install` は wp-main の `core.hooksPath` を `.githooks` に設定する。これにより、`git pull`（merge と rebase の両方）の後に `dev-env:migrate --auto` が自動で動く。
+自動で実行するのは、sudo もデータの削除も必要とせず、Docker に接続できる場合だけ。それ以外は何もせずに、端末で `uv run cli dev-env:migrate` を実行するよう表示する。
+install 済みの環境でフックだけを有効にするには、`git config core.hooksPath .githooks` を実行する。
+
+環境バージョンが古いと、CLI の各コマンドが警告を出し、`dev-env:check-health` は WARN を出す。
+
+### migration の書き方
+
+`src/wp_main/migrations/m0002_<名前>.py` のように、2 からの連番で 1 ファイルずつ追加する。
+
+```python
+VERSION = 2                      # ファイル名の番号と同じ
+DESCRIPTION = "wp1 の DB ボリューム名を変更"
+REQUIRES_SUDO = False            # True なら自動実行しない（端末での実行が必要）
+DESTRUCTIVE = False              # True なら自動実行せず、実行前に確認をとる
+LOSES = ""                       # DESTRUCTIVE のとき、失われるものを書く
+
+def up(ctx):                     # ctx.runner / ctx.root / ctx.main_dir / ctx.sites
+    ...
+```
+
+- 途中で失敗して再実行されても結果が同じになるよう、冪等に書く
+- 変更してよいのは環境のリソース（ボリューム、ネットワーク、hosts、`.env` への変数の追加、CA、コンテナ）だけ。wp-wp1 / wp-wp2 の中身は変更しない（サイトの変更は各リポジトリのコミットで配る）
+- 後戻り（down）は用意しない。困ったときは uninstall してから install し直す
+
 ## 日常の操作（wp-main で実行）
 
 ```bash
@@ -94,16 +133,22 @@ curl -s -o /dev/null -w '%{http_code}\n' -H 'Host: local.wp2.yamashita109.com' -
 ## 検証
 
 ```bash
-docker compose ps                                                     # 6 コンテナが running（dashboard を含む）
-curl -sI https://local.wp1.yamashita109.com/ | head -1                # HTTP/2 200（証明書エラーなし）
-curl -sI http://local.wp2.yamashita109.com/ | grep -i '^location'     # https:// へリダイレクト
-curl -s https://local.wp1.yamashita109.com/ | grep -o 'WordPress [0-9.]*'
-curl -sI https://local.wp-main.yamashita109.com/ | head -1            # ダッシュボード: HTTP/2 200
-docker ps --filter name=wp-caddy --format '{{.Ports}}'                # 既定では 127.0.0.1:443->443/tcp のように 127.0.0.1 だけに公開
-security find-certificate -c "Caddy Local Authority" /Library/Keychains/System.keychain
+uv run cli dev-env:check-health          # 各項目を OK / WARN / FAIL / SKIP で表示
+uv run cli dev-env:check-health --json   # 機械向け（CI やスクリプトから使う）
 ```
 
-ブラウザで開いて、鍵マークが有効なことと、`/wp-admin/` へのログイン後にリダイレクトがループしないことを確認する。
+sudo は使わず、環境も変更しない。確認する項目は次のとおり。
+
+| グループ | 項目 |
+| --- | --- |
+| 構成 | サイトリポジトリの origin、各 `.env` の有無と `change-me` の残り |
+| ホスト | 各ドメインの名前解決（127.0.0.1）、`wp-global-net`、Caddy の CA がキーチェーンに登録されているか |
+| コンテナ | Caddy と各サイトの WordPress・DB が running か（DB は healthy か） |
+| HTTP と WordPress | HTTPS の応答と証明書の検証、HTTP から HTTPS へのリダイレクト、インストール済みか、メジャーバージョン |
+
+- 前提の項目が FAIL なら、その項目は SKIP になる（例: Caddy が止まっていれば HTTP の項目はすべて SKIP）。WARN と FAIL には対処方法が表示される。
+- FAIL が 1 つでもあれば終了コード 1、WARN だけなら 0。
+- 管理画面へのログインは確認しない。ブラウザで `/wp-admin/` にログインし、リダイレクトがループしないことを確認する。
 
 ## 開発
 

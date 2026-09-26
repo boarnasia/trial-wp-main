@@ -14,9 +14,12 @@ def load_state() -> dict:
     return json.loads(STATE_FILE.read_text()) if STATE_FILE.exists() else {}
 
 
-def save_state(state: dict) -> None:
+def update_state(**values) -> dict:
+    # CA の SHA-1 と環境バージョンを別々の処理が書くため、読み直してから既存のキーに重ねる
+    state = {**load_state(), **values}
     LOCAL_DIR.mkdir(exist_ok=True)
     STATE_FILE.write_text(json.dumps(state, indent=2, ensure_ascii=False) + "\n")
+    return state
 
 
 def pem_sha1(pem: str) -> str:
@@ -59,5 +62,5 @@ def trust_caddy_ca(runner: Runner) -> str:
         ["sudo", "security", "add-trusted-cert", "-d", "-r", "trustRoot", "-k", SYSTEM_KEYCHAIN, str(CA_CERT_FILE)]
     )
     if not runner.dry_run:
-        save_state({**state, "ca_sha1": sha1})
+        update_state(ca_sha1=sha1)
     return sha1

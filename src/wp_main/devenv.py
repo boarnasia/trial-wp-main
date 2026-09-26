@@ -4,7 +4,7 @@ from pathlib import Path
 
 import typer
 
-from . import hosts
+from . import hosts, versioning
 from .config import (
     CA_CERT_FILE,
     CADDY_IMAGE,
@@ -63,7 +63,50 @@ def hosts_domains() -> list[str]:
     return [*(site.domain for site in SITES), DASHBOARD_DOMAIN]
 
 
+HOOKS_PATH = ".githooks"
+
+
+def git_hooks_path(runner: Runner) -> str:
+    return runner.run(
+        ["git", "-C", str(MAIN_DIR), "config", "--local", "--get", "core.hooksPath"], check=False, mutate=False
+    ).stdout.strip()
+
+
+def enable_hooks(runner: Runner) -> None:
+    current = git_hooks_path(runner)
+    if current == HOOKS_PATH:
+        typer.echo("  設定済み")
+        return
+    if current:
+        typer.secho(
+            f"  core.hooksPath は {current} に設定されているため変更しません。"
+            f"{MAIN_DIR / HOOKS_PATH} の post-merge と post-rewrite を {current} から呼び出してください",
+            fg=typer.colors.YELLOW,
+        )
+        return
+    runner.run(["git", "-C", str(MAIN_DIR), "config", "--local", "core.hooksPath", HOOKS_PATH])
+
+
+def disable_hooks(runner: Runner) -> None:
+    if git_hooks_path(runner) == HOOKS_PATH:
+        runner.run(["git", "-C", str(MAIN_DIR), "config", "--local", "--unset", "core.hooksPath"])
+
+
+def finish_version(runner: Runner, root: Path, fresh: bool) -> None:
+    if runner.dry_run:
+        return
+    if fresh:
+        versioning.record_latest()
+        return
+    message = versioning.outdated_message(root)
+    if message:
+        typer.secho(message, fg=typer.colors.YELLOW)
+
+
 def install(runner: Runner, root: Path, *, start: bool, trust: bool) -> None:
+    # 既存の環境に最新のバージョンを記録すると、未適用の migration が永久に実行されなくなる
+    fresh = versioning.installed_version(root) is None
+
     step(f"サイトリポジトリを準備 (root: {root})")
     for site in SITES:
         result = ensure_site_repo(runner, site, root)
@@ -77,11 +120,15 @@ def install(runner: Runner, root: Path, *, start: bool, trust: bool) -> None:
     step(f"Docker ネットワーク {NETWORK}")
     typer.echo("  作成" if ensure_network(runner) else "  既存")
 
+    step(f"wp-main の git フック（core.hooksPath = {HOOKS_PATH}）")
+    enable_hooks(runner)
+
     step("/etc/hosts にエントリを登録（sudo）")
     new_hosts = hosts.with_block(hosts.HOSTS_FILE.read_text(), hosts_domains())
     typer.echo("  更新" if hosts.write_hosts(runner, new_hosts) else "  変更なし")
 
     if not start:
+        finish_version(runner, root, fresh)
         typer.echo("--no-start のため起動と CA 登録を省略しました。起動: docker compose up -d")
         return
 
@@ -107,6 +154,7 @@ def install(runner: Runner, root: Path, *, start: bool, trust: bool) -> None:
             f"    sudo security add-trusted-cert -d -r trustRoot -k {SYSTEM_KEYCHAIN} {CA_CERT_FILE}"
         )
 
+    finish_version(runner, root, fresh)
     typer.secho("\n完了しました。", fg=typer.colors.GREEN, bold=True)
     for site in SITES:
         env = read_env(root / site.dir_name)
@@ -216,6 +264,7 @@ def uninstall(runner: Runner, root: Path, *, assume_yes: bool) -> None:
     attempt(f"ネットワーク {NETWORK} を削除", remove_network)
     attempt("Caddy ローカル CA の信頼を解除（sudo）", remove_ca)
     attempt("/etc/hosts のエントリを削除（sudo）", remove_hosts)
+    attempt("wp-main の git フックの設定を解除", lambda: disable_hooks(runner))
     attempt("サイトディレクトリを削除", remove_dirs)
     attempt(f"{LOCAL_DIR} の状態ファイルと .env を削除", remove_local_files)
 
