@@ -57,7 +57,7 @@ CLI は `{root}` を wp-main の親ディレクトリとして扱わなければ
 - **THEN** `.env` の内容は変わらない
 
 ### Requirement: hosts エントリの管理
-`dev-env:install` は `/etc/hosts` に `local.wp1.yamashita109.com` と `local.wp2.yamashita109.com` を `127.0.0.1` に向けるエントリを、CLI 専用のマーカーで囲んだブロックとして追加しなければならない (MUST)。ブロックが既に存在する場合は重複させてはならない (MUST NOT)。`dev-env:uninstall` はそのブロックだけを削除しなければならない (MUST)。
+`dev-env:install` は `/etc/hosts` に `local.wp1.yamashita109.com` と `local.wp2.yamashita109.com` を `127.0.0.1` に向けるエントリを、CLI 専用のマーカーで囲んだブロックとして追加しなければならない (MUST)。ブロックが既に存在する場合は重複させてはならない (MUST NOT)。`dev-env:uninstall` はそのブロックだけを削除しなければならない (MUST)。マーカーの開始と終了の対応が崩れている場合、CLI は `/etc/hosts` を変更してはならない (MUST NOT)。CLI は `/etc/hosts` を書き換える前に、元の内容をバックアップしなければならない (MUST)。
 
 #### Scenario: 冪等な追加
 - **WHEN** install を 2 回実行する
@@ -66,6 +66,14 @@ CLI は `{root}` を wp-main の親ディレクトリとして扱わなければ
 #### Scenario: 他のエントリを保持する
 - **WHEN** uninstall を実行する
 - **THEN** マーカーブロック以外の `/etc/hosts` の行は変更されない
+
+#### Scenario: マーカーの対応が崩れている
+- **WHEN** `/etc/hosts` に開始マーカーだけがあり終了マーカーがない状態で install または uninstall を実行する
+- **THEN** CLI は `/etc/hosts` を変更せず、崩れている行を示してエラーにする
+
+#### Scenario: 書き換え前のバックアップ
+- **WHEN** install または uninstall が `/etc/hosts` を書き換える
+- **THEN** 書き換え直前の内容が `/etc/hosts.wp-dev-env.bak` に保存される
 
 ### Requirement: 共通ネットワークの作成
 `dev-env:install` は Docker ネットワーク `wp-global-net` が存在しない場合に作成しなければならない (MUST)。
@@ -86,7 +94,7 @@ CLI は `{root}` を wp-main の親ディレクトリとして扱わなければ
 - **THEN** キーチェーンは変更されず、手動で信頼登録する手順が表示される
 
 ### Requirement: 環境の破棄
-`dev-env:uninstall` は、確認プロンプトで承認された場合、または `--yes` が指定された場合にのみ削除を実行しなければならない (MUST)。削除対象は、全コンテナ、install 由来のボリュームとイメージ、`wp-global-net`、hosts のマーカーブロック、記録済みの信頼済み CA 証明書、`{root}/wp-wp1`、`{root}/wp-wp2` とする。サイトディレクトリに未コミットまたは未 push の変更がある場合、CLI は確認プロンプトの前に警告を表示しなければならない (MUST)。
+`dev-env:uninstall` は、確認プロンプトで承認された場合、または `--yes` が指定された場合にのみ削除を実行しなければならない (MUST)。削除対象は、全コンテナ、install 由来のボリュームとイメージ、`wp-global-net`、hosts のマーカーブロック、記録済みの信頼済み CA 証明書、`{root}/wp-wp1`、`{root}/wp-wp2` とする。`/etc/hosts` のバックアップは復旧用に残し、削除方法を表示しなければならない (MUST)。サイトディレクトリに未コミットまたは未 push の変更がある場合、CLI は確認プロンプトの前に警告を表示しなければならない (MUST)。
 
 #### Scenario: 確認を拒否する
 - **WHEN** uninstall の確認プロンプトで `N` を入力する
@@ -99,6 +107,10 @@ CLI は `{root}` を wp-main の親ディレクトリとして扱わなければ
 #### Scenario: 完全な後片付け
 - **WHEN** `--yes` を付けて uninstall を実行する
 - **THEN** `{root}/wp-wp1` と `{root}/wp-wp2` が削除され、`wp-global-net`・関連ボリューム・hosts ブロック・信頼済み CA が残らない
+
+#### Scenario: hosts のバックアップは残して案内する
+- **WHEN** `/etc/hosts.wp-dev-env.bak` がある状態で uninstall を実行する
+- **THEN** バックアップは削除されず、最後に `sudo rm /etc/hosts.wp-dev-env.bak` による削除方法が表示される
 
 #### Scenario: 部分的な状態でも完了する
 - **WHEN** 一部のリソースが既に存在しない状態で uninstall を実行する
