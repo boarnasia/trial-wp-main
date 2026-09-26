@@ -37,11 +37,11 @@
 - [x] 5.1 ユーザーの確認後に空の `{root}/wp-wp1/wp-site2` を削除し、`! uv run cli dev-env:install` を実行して、全ステップが成功することを確認する
 - [x] 5.2 wp-main で `docker compose ps` を実行し、5 つのコンテナが起動していることを確認する。`docker compose down` と `docker compose up -d` の後も CA が変わらないことを確認する
 - [x] 5.3 `curl -sI https://local.wp1.yamashita109.com/` と `curl -sI https://local.wp2.yamashita109.com/` が証明書エラーなしで 200 を返すこと、`http://` が HTTPS へリダイレクトされることを確認する
-- [ ] 5.4 ブラウザで両サイトの証明書が信頼済みであること、`/wp-admin/` へのログインとリダイレクトがループしないことを確認する
+- [x] 5.4 ブラウザで両サイトの証明書が信頼済みであること、`/wp-admin/` へのログインとリダイレクトがループしないことを確認する
 - [x] 5.5 サイトディレクトリで単体起動（`docker compose up -d`）し、wp-main を起動していない状態で `localhost:808N` が応答することを確認する
-- [ ] 5.6 `! uv run cli dev-env:uninstall` を実行し、ディレクトリ・コンテナ・ボリューム・ネットワーク・hosts ブロック・CA が残っていないことを確認する。続けて install を再実行し、環境が再構築できることを確認する
+- [x] 5.6 `! uv run cli dev-env:uninstall` を実行し、ディレクトリ・コンテナ・ボリューム・ネットワーク・hosts ブロック・CA が残っていないことを確認する。続けて install を再実行し、環境が再構築できることを確認する
 
 ## 6. リポジトリ公開（ユーザーの確認後）
 
 - [x] 6.1 wp-main に `origin`（trial-wp-main）を設定し、コミットと push を行う。`git ls-remote` で反映を確認する
-- [ ] 6.2 install が作成した wp-wp1・wp-wp2 の初回コミットを push し、次回の install が clone 済みのコードで動作することを確認する
+- [x] 6.2 install が作成した wp-wp1・wp-wp2 の初回コミットを push し、次回の install が clone 済みのコードで動作することを確認する

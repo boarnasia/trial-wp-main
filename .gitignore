@@ -1,6 +1,9 @@
 # 個人用のフォルダ
 .local/
 
+# CodeGraph のローカル索引
+.codegraph/
+
 # Python
 .venv/
 __pycache__/
