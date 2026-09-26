@@ -104,3 +104,12 @@ def test_password_api_unknown_site(client):
 
 def test_healthz(client):
     assert client.get("/healthz").json() == {"status": "ok"}
+
+
+def test_index_supports_head(client):
+    assert client.head("/").status_code == 200
+
+
+def test_login_link_opens_new_tab(client):
+    html = client.get("/").text
+    assert 'href="https://local.wp1.yamashita109.com/wp-login.php" target="_blank" rel="noopener noreferrer"' in html

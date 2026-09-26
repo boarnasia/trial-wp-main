@@ -68,7 +68,7 @@
         {% endif %}
       </div>
       <div role="cell">
-        {% if s.login_url %}<a class="button" href="{{ s.login_url }}">wp-admin を開く</a>{% endif %}
+        {% if s.login_url %}<a class="button" href="{{ s.login_url }}" target="_blank" rel="noopener noreferrer">wp-admin を開く</a>{% endif %}
       </div>
       {% if s.missing %}
       <div role="cell" class="problem span-all">{{ s.env_path }} に未設定の項目があります: <span class="mono">{{ s.missing | join(', ') }}</span></div>

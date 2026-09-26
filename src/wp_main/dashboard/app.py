@@ -15,7 +15,8 @@ app.mount("/static", StaticFiles(directory=HERE / "static"), name="static")
 templates = Jinja2Templates(directory=HERE / "templates")
 
 
-@app.get("/", response_class=HTMLResponse)
+# curl -I などの HEAD による疎通確認で 405 にならないようにする
+@app.api_route("/", methods=["GET", "HEAD"], response_class=HTMLResponse)
 def index(request: Request):
     return templates.TemplateResponse(request, "index.html", {"sites": load_sites()}, headers=NO_STORE)
 

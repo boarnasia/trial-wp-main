@@ -99,7 +99,7 @@ curl -sI https://local.wp1.yamashita109.com/ | head -1                # HTTP/2 2
 curl -sI http://local.wp2.yamashita109.com/ | grep -i '^location'     # https:// へリダイレクト
 curl -s https://local.wp1.yamashita109.com/ | grep -o 'WordPress [0-9.]*'
 curl -sI https://local.wp-main.yamashita109.com/ | head -1            # ダッシュボード: HTTP/2 200
-lsof -nP -iTCP:443 -sTCP:LISTEN                                       # 既定では 127.0.0.1 だけで待ち受ける
+docker ps --filter name=wp-caddy --format '{{.Ports}}'                # 既定では 127.0.0.1:443->443/tcp のように 127.0.0.1 だけに公開
 security find-certificate -c "Caddy Local Authority" /Library/Keychains/System.keychain
 ```
 

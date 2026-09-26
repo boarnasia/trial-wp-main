@@ -24,5 +24,5 @@
 ## 5. ドキュメントと統合確認
 
 - [x] 5.1 `README.md` にダッシュボードの URL、既存環境での反映手順（`dev-env:install` の再実行）、`PROXY_BIND_ADDRESS` による公開範囲の切り替え方法と、`0.0.0.0` にしたときに LAN からパスワードが見える点の注意を追記する
-- [ ] 5.2 実環境で `uv run cli dev-env:install` を実行し、`https://local.wp-main.yamashita109.com/` が証明書エラーなしで開くこと、両サイトの行とリンクが正しいこと、`docker compose ps` に 6 コンテナが表示されること、`lsof -nP -iTCP:443 -sTCP:LISTEN` で `127.0.0.1` にだけ待ち受けていることを確認する
-- [ ] 5.3 実環境で `../wp-wp1/.env` の `WP_ADMIN_PASSWORD` を一時的に書き換え、コンテナを再起動せずにダッシュボードの表示が変わること、コンテナ内から `/sites/wp1/.env` に書き込めないことを確認し、値を元に戻す
+- [x] 5.2 実環境で `uv run cli dev-env:install` を実行し、`https://local.wp-main.yamashita109.com/` が証明書エラーなしで開くこと、両サイトの行とリンクが正しいこと、`docker compose ps` に 6 コンテナが表示されること、`docker ps` の Caddy のポートが `127.0.0.1` だけに公開され、LAN の IP アドレス経由の HTTPS 接続が確立しないことを確認する（OrbStack は `lsof` 上は `*:443` で待ち受けるため、`lsof` では判定できない）
+- [x] 5.3 実環境で `../wp-wp1/.env` の `WP_ADMIN_PASSWORD` を一時的に書き換え、コンテナを再起動せずにダッシュボードの表示が変わること、コンテナ内から `/sites/wp1/.env` に書き込めないことを確認し、値を元に戻す
