@@ -58,7 +58,7 @@ uv run cli dev-env:uninstall         # 確認後にすべて削除（--yes で�
 - 値は表示のたびに `../wp-wp1/.env` と `../wp-wp2/.env` から読み込む。`.env` を書き換えれば、再起動せずに次の表示から反映される
 - サイトディレクトリは読み取り専用でマウントしている
 - パスワードは伏せて表示し、表示ボタンかコピーボタンを押したときだけ取得する
-- この機能を入れる前に構築した環境では、`uv run cli dev-env:install` を再実行して hosts とイメージを更新する
+- この機能を入れる前に構築した環境では、`uv run cli dev-env:migrate` を実行する（migration 2。hosts にドメインを加えるため sudo のパスワードを求められ、pull 後の自動移行では実行されない）
 
 ## 公開範囲（PROXY_BIND_ADDRESS）
 
@@ -142,9 +142,9 @@ sudo は使わず、環境も変更しない。確認する項目は次のとお
 | グループ | 項目 |
 | --- | --- |
 | 構成 | サイトリポジトリの origin、各 `.env` の有無と `change-me` の残り |
-| ホスト | 各ドメインの名前解決（127.0.0.1）、`wp-global-net`、Caddy の CA がキーチェーンに登録されているか |
-| コンテナ | Caddy と各サイトの WordPress・DB が running か（DB は healthy か） |
-| HTTP と WordPress | HTTPS の応答と証明書の検証、HTTP から HTTPS へのリダイレクト、インストール済みか、メジャーバージョン |
+| ホスト | 各サイトとダッシュボードのドメインの名前解決（127.0.0.1）、`wp-global-net`、Caddy の CA がキーチェーンに登録されているか |
+| コンテナ | Caddy・各サイトの WordPress と DB・ダッシュボードが running か（DB とダッシュボードは healthy か） |
+| HTTP と WordPress | 各サイトとダッシュボードの HTTPS の応答と証明書の検証、HTTP から HTTPS へのリダイレクト、WordPress がインストール済みか、メジャーバージョン |
 
 - 前提の項目が FAIL なら、その項目は SKIP になる（例: Caddy が止まっていれば HTTP の項目はすべて SKIP）。WARN と FAIL には対処方法が表示される。
 - FAIL が 1 つでもあれば終了コード 1、WARN だけなら 0。
