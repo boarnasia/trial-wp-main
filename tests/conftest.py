@@ -5,6 +5,7 @@ from dataclasses import dataclass
 import pytest
 from django.core.management import ManagementUtility
 
+from wp_main import operations
 from wp_main.runner import DevEnvError, Runner
 
 
@@ -54,3 +55,11 @@ def manage(capsys):
         return ManageResult(code, captured.out, captured.err)
 
     return run
+
+
+@pytest.fixture(autouse=True)
+def sent_operations(monkeypatch) -> list[dict]:
+    """テストから実際のダッシュボードへ履歴を送らないよう、送信を記録だけにする。"""
+    sent: list[dict] = []
+    monkeypatch.setattr(operations, "send", sent.append)
+    return sent

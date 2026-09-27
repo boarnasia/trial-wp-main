@@ -269,3 +269,10 @@ def test_warning_failure_does_not_block_command(monkeypatch, manage):
     assert result.exit_code == 0
     assert "uninstall ran" in result.stdout
     assert "確認できません" in result.stderr
+
+
+def test_discover_skips_private_helpers(make_package):
+    package = make_package({"version": 2})
+    (Path(package.__path__[0]) / "_helpers.py").write_text("VALUE = 1\n")
+    importlib.invalidate_caches()
+    assert [module.VERSION for module in versioning.discover(package)] == [2]

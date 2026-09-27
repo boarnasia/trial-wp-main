@@ -23,7 +23,7 @@ def sites_dir(tmp_path, monkeypatch):
 
 
 @pytest.fixture
-def client(sites_dir):
+def client(sites_dir, db):
     return Client()
 
 
@@ -135,3 +135,37 @@ def test_favicon(client):
     response = client.get("/favicon.ico")
     assert response.status_code == 301 and response.headers["Location"] == "/static/favicon.svg"
     assert client.get("/static/favicon.svg").status_code == 200
+
+
+def add_operation(minute, **values):
+    from datetime import datetime, timezone
+
+    from wp_main.dashboard.models import Operation
+
+    finished = datetime(2026, 9, 27, 1, minute, tzinfo=timezone.utc)
+    fields = {"command": "migrate", "options": {}, "started_at": finished, "finished_at": finished,
+              "exit_code": 0, "succeeded": True, "summary": "3 → 4"} | values
+    return Operation.objects.create(**fields)
+
+
+def test_history_newest_first_and_marks_failure(client):
+    add_operation(0)
+    add_operation(5, command="check-health", exit_code=1, succeeded=False, summary="OK 26 / WARN 0 / FAIL 1 / SKIP 0")
+    html = client.get("/").content.decode()
+    assert html.index("check-health") < html.index("3 → 4")
+    assert 'class="row failed"' in html and "失敗" in html
+    assert "2026-09-27 10:05:00" in html
+
+
+def test_history_limited_to_recent(client):
+    for minute in range(25):
+        add_operation(minute, summary=f"op-{minute:02d}")
+    html = client.get("/").content.decode()
+    assert "op-24" in html and "op-05" in html and "op-04" not in html
+
+
+def test_history_empty(client):
+    response = client.get("/")
+    assert response.status_code == 200
+    assert "操作履歴はまだありません" in response.content.decode()
+    assert "WordPress 7.1" in response.content.decode()

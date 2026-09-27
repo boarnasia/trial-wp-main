@@ -63,6 +63,15 @@ CLI はダッシュボードと同じ Django プロジェクトの management co
 - この機能を入れる前に構築した環境では、`uv run manage.py devenv migrate` を実行する（dev-env:migration 2。hosts にドメインを加えるため sudo のパスワードを求められ、pull 後の自動移行では実行されない）
 - Django 版への切り替え（dev-env:migration 3）は、`git pull` の後に自動で適用される。wp-main の `.env` に `DJANGO_SECRET_KEY` を加え、プロキシが起動中ならダッシュボードを再ビルドする
 
+## 操作履歴
+
+`devenv install`・`devenv migrate`・`devenv check-health` の結果は、ダッシュボードのサイト一覧の下に新しい順で 20 件表示される（DB には最大 1000 件を残す）。
+
+- CLI はコマンドの終了時に、ダッシュボードの API（`/api/operations`）へ結果を送る。認証には wp-main の `.env` の `DASHBOARD_API_TOKEN` を使う
+- ダッシュボードが止まっているなどで送れないときは、`警告: 操作履歴を記録できませんでした` を表示するだけで、コマンドの結果と終了コードは変わらない。送れなかった履歴は後から送り直さない
+- 記録しないもの: `--dry-run` の実行、何も適用しなかった `devenv migrate`、`devenv uninstall`（最後に DB のボリュームごと消えるため）
+- `.env` の `DASHBOARD_API_TOKEN` を書き換えたら、`docker compose up -d --build dashboard` でコンテナに反映する
+
 ## 公開範囲（PROXY_BIND_ADDRESS）
 
 Caddy の 80/443 は、既定で `127.0.0.1` にだけ公開する。実機のスマートフォンなど、LAN の他の端末から開くときだけ全インターフェースに公開する。
@@ -83,7 +92,7 @@ migration は 2 種類あり、呼び分ける。この節の migration は dev-
 | 呼び方 | 対象 | 置き場所 | 実行 | 記録先 |
 | --- | --- | --- | --- | --- |
 | dev-env:migration | 開発環境のリソース（hosts、ボリューム、`.env` など） | `src/wp_main/devenv/migrations/` | `uv run manage.py devenv migrate` | `.local/dev-env-state.json` |
-| django:migration | Django の DB スキーマ | 各 Django app の `migrations/` | `uv run manage.py migrate` | `.local/db.sqlite3` |
+| django:migration | Django の DB スキーマ | 各 Django app の `migrations/` | ダッシュボードのコンテナの起動時に自動 | ダッシュボードの DB（ボリューム `wp-dashboard-data`） |
 
 - 最新のバージョン: `src/wp_main/devenv/migrations/` にある migration の最大番号（migration がなければ 1）
 - 導入済みのバージョン: `.local/dev-env-state.json` の `env_version`（マシンごと、git の管理外）。記録がない既存の環境は 1 とみなす
@@ -154,7 +163,7 @@ sudo は使わず、環境も変更しない。確認する項目は次のとお
 | 構成 | サイトリポジトリの origin、各 `.env` の有無と `change-me` の残り |
 | ホスト | 各サイトとダッシュボードのドメインの名前解決（127.0.0.1）、`wp-global-net`、Caddy の CA がキーチェーンに登録されているか |
 | コンテナ | Caddy・各サイトの WordPress と DB・ダッシュボードが running か（DB とダッシュボードは healthy か） |
-| HTTP と WordPress | 各サイトとダッシュボードの HTTPS の応答と証明書の検証、HTTP から HTTPS へのリダイレクト、WordPress がインストール済みか、メジャーバージョン |
+| HTTP と WordPress | 各サイトとダッシュボードの HTTPS の応答と証明書の検証、HTTP から HTTPS へのリダイレクト、操作履歴 API に接続できるか（できなければ WARN）、WordPress がインストール済みか、メジャーバージョン |
 
 - 前提の項目が FAIL なら、その項目は SKIP になる（例: Caddy が止まっていれば HTTP の項目はすべて SKIP）。WARN と FAIL には対処方法が表示される。
 - FAIL が 1 つでもあれば終了コード 1、WARN だけなら 0。
@@ -169,6 +178,6 @@ DASHBOARD_SITES_DIR=/path/to/sites DJANGO_DEBUG=1 uv run manage.py runserver   #
 
 ダッシュボードと CLI は 1 つの Django プロジェクト（`manage.py`、`src/wp_main/settings.py`）にまとめている。ダッシュボードは app `wp_main.dashboard`（API は Django Ninja）、CLI は app `wp_main.cli` の management command。
 
-DB は SQLite（`.local/db.sqlite3`、git の管理外）を使う。今はモデルを持たない。書き込むのは Django の Web 側（ダッシュボードのコンテナ）だけにし、CLI から DB を更新する必要があるときは Web API を呼ぶ。macOS の Docker Desktop の bind mount では SQLite のファイルロックが信頼できないため。
+DB は SQLite で、ダッシュボードのコンテナだけがマウントする名前付きボリューム `wp-dashboard-data`（`/data/db.sqlite3`）に置く。書き込むのはダッシュボードだけにし、CLI から DB を更新する必要があるときは Web API を呼ぶ。macOS の Docker Desktop の bind mount では SQLite のファイルロックが信頼できないため。django:migration はコンテナの起動時に適用されるので、ホストで `uv run manage.py migrate` を実行する必要はない（実行するとホストの `.local/db.sqlite3` に無関係な DB ができるだけ）。
 
 サイトの雛形は `templates/wp-site/` にある（`{{SITE_ID}}` などをサイトごとに置換する）。雛形は空のリモートを初期化するときだけ使う。初期化した後は、各サイトリポジトリ側を直接編集する。

@@ -30,6 +30,9 @@ class MigrationContext:
 def discover(package: ModuleType = default_package) -> list[ModuleType]:
     found = []
     for info in pkgutil.iter_modules(package.__path__):
+        # _ で始まるモジュールは migration が共有する補助関数
+        if info.name.startswith("_"):
+            continue
         match = MODULE_NAME.match(info.name)
         if not match:
             raise DevEnvError(f"migration のファイル名が不正です: {info.name}（mNNNN_<名前>.py）")
@@ -88,6 +91,7 @@ def migrate(
     package: ModuleType = default_package,
     main_dir: Path = MAIN_DIR,
     is_tty: Callable[[], bool] = sys.stdin.isatty,
+    report: Callable[[int, int, str | None], None] | None = None,
 ) -> int:
     """終了コードを返す。--auto は git のフックから呼ばれるため、pull を妨げないよう常に 0 を返す。"""
     failure = 0 if auto else 1
@@ -151,12 +155,14 @@ def migrate(
         try:
             module.up(context)
         except Exception as error:
-            typer.secho(
-                f"migration {module.VERSION} ({module.__name__}) が失敗しました: {error}\n"
-                f"環境バージョンは {trust.load_state().get('env_version', installed)} のままです",
-                fg=typer.colors.RED,
-            )
+            reached = int(trust.load_state().get("env_version", installed))
+            message = f"migration {module.VERSION} ({module.__name__}) が失敗しました: {error}"
+            typer.secho(f"{message}\n環境バージョンは {reached} のままです", fg=typer.colors.RED)
+            if report:
+                report(installed, reached, message)
             return failure
         trust.update_state(env_version=module.VERSION)
     typer.secho(f"環境バージョン {newest} に移行しました", fg=typer.colors.GREEN, bold=True)
+    if report:
+        report(installed, newest, None)
     return 0

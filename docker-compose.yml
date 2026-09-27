@@ -39,8 +39,10 @@ services:
     # :? で必須にすると、キーのない環境で docker compose down まで失敗する
     environment:
       DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY:-}
+      DASHBOARD_API_TOKEN: ${DASHBOARD_API_TOKEN:-}
     # ファイル単体のマウントだと、エディタが置き換え保存したときに古い .env を読み続ける
     volumes:
+      - dashboard_data:/data
       - ../wp-wp1:/sites/wp1:ro
       - ../wp-wp2:/sites/wp2:ro
     networks:
@@ -62,3 +64,6 @@ volumes:
     name: wp-caddy-data
   caddy_config:
     name: wp-caddy-config
+  # ダッシュボードの DB（操作履歴）。書き込むのはダッシュボードのコンテナだけ
+  dashboard_data:
+    name: wp-dashboard-data

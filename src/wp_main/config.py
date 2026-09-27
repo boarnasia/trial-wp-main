@@ -17,6 +17,7 @@ WP_CLI_IMAGE = "wordpress:cli"
 PROXY_PORTS = (80, 443)
 DASHBOARD_DOMAIN = "local.wp-main.yamashita109.com"
 DASHBOARD_IMAGE = "wp-main-dashboard"
+DASHBOARD_VOLUME = "wp-dashboard-data"
 
 
 @dataclass(frozen=True)

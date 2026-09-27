@@ -6,7 +6,7 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
 from .config import CADDY_ROOT_CERT, CADDY_SERVICE, DASHBOARD_DOMAIN, MAIN_DIR, NETWORK, SITES, Site
-from . import versioning
+from . import operations, versioning
 from .runner import Runner
 from .sites import SECRET_PLACEHOLDER, read_env
 from .trust import SYSTEM_KEYCHAIN, pem_sha1
@@ -25,6 +25,7 @@ CURL_TIMEOUT = "5"
 CURL_SSL_ERROR = 60
 CADDY_CONTAINER = "wp-caddy"
 DASHBOARD_CONTAINER = "wp-dashboard"
+DASHBOARD_SERVICE = "dashboard"
 INSTALL_HINT = "uv run manage.py devenv install を実行してください"
 
 
@@ -121,6 +122,7 @@ class HealthContext:
     root: Path
     main_dir: Path = MAIN_DIR
     resolver: Callable[[str], list[str]] = resolve_ipv4
+    api: Callable[..., tuple[int, object]] = operations.call_api
     _containers: dict | None = field(default=None, init=False)
     _responses: dict[str, HttpResponse] = field(default_factory=dict, init=False)
 
@@ -373,10 +375,24 @@ def dashboard_http_checks(ctx: HealthContext) -> list[Check]:
             return Result(OK, f"HTTP {response.code} → {response.redirect}")
         return Result(FAIL, f"HTTP {response.code} → {response.redirect or '(なし)'}", "Caddyfile を確認してください")
 
+    def api() -> Result:
+        # 記録は best effort なので、使えなくても FAIL にはしない
+        rebuild = f"docker compose up -d --build {DASHBOARD_SERVICE} で .env の変更をコンテナに反映してください"
+        try:
+            status, _ = ctx.api("GET", "?limit=1", runner=ctx.runner)
+        except operations.ApiError as error:
+            return Result(WARN, f"接続できません: {error}", rebuild)
+        if status == 401:
+            return Result(WARN, f"{operations.TOKEN_KEY} が一致しません", rebuild)
+        if status != 200:
+            return Result(WARN, f"HTTP {status}", f"docker compose logs {DASHBOARD_CONTAINER} を確認してください")
+        return Result(OK, "操作履歴を記録できます")
+
     return [
         Check("http.https.dashboard", "http", f"HTTPS {DASHBOARD_DOMAIN}", https,
               (*base_requires, f"container.{DASHBOARD_CONTAINER}")),
         Check("http.redirect.dashboard", "http", f"HTTP → HTTPS {DASHBOARD_DOMAIN}", redirect, base_requires),
+        Check("http.api.dashboard", "http", "操作履歴 API", api, ("http.https.dashboard",)),
     ]
 
 

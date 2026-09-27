@@ -1,3 +1,4 @@
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Annotated
 
@@ -5,11 +6,13 @@ import typer
 
 from django_typer.management import Typer
 
-from .... import __version__, devenv, health, versioning
+from .... import __version__, devenv, health, operations, versioning
 from ....config import resolve_root
 from ....runner import DevEnvError, Runner
 
 app = Typer(help="wp-main: マルチリポジトリ WordPress 開発環境の管理 CLI")
+# CLI はホストで動き、DB を開かない。JSONField のシステムチェックは DB に接続するため行わない
+Command.requires_system_checks = []  # noqa: F821  Typer() がこのモジュールに Command を作る
 
 # 移行そのものや状態の確認、情報表示では警告を出さない
 NO_VERSION_WARNING = {"migrate", "check-health", "version"}
@@ -34,6 +37,10 @@ RootOption = Annotated[
 DryRunOption = Annotated[bool, typer.Option("--dry-run", help="変更を伴うコマンドを表示だけする")]
 
 
+def now() -> datetime:
+    return datetime.now(UTC)
+
+
 def run_guarded(action) -> None:
     try:
         action()
@@ -50,9 +57,17 @@ def install(
     dry_run: DryRunOption = False,
 ) -> None:
     """wp-wp1 / wp-wp2 を取得し、hosts・ネットワーク・Caddy を含む開発環境を構築して起動する。"""
-    run_guarded(
-        lambda: devenv.install(Runner(dry_run), resolve_root(root), start=not no_start, trust=not skip_trust)
-    )
+    options = {"root": root, "no_start": no_start, "skip_trust": skip_trust}
+    started = now()
+    try:
+        devenv.install(Runner(dry_run), resolve_root(root), start=not no_start, trust=not skip_trust)
+    except DevEnvError as error:
+        typer.secho(f"エラー: {error}", fg=typer.colors.RED, err=True)
+        if not dry_run:
+            operations.record("install", options, started, now(), exit_code=1, succeeded=False, summary=str(error))
+        raise typer.Exit(1) from error
+    if not dry_run:
+        operations.record("install", options, started, now(), exit_code=0, succeeded=True, summary="構築しました")
 
 
 @app.command("uninstall")
@@ -74,14 +89,24 @@ def migrate(
 ) -> None:
     """環境を最新の環境バージョンへ移行する。"""
     code = 0
+    started = now()
+    # 何も適用しなかった実行は記録しないため、migration を実行したときだけ結果を受け取る
+    attempts: list[tuple[int, int, str | None]] = []
     try:
-        code = versioning.migrate(Runner(dry_run), resolve_root(root), auto=auto, assume_yes=yes)
+        code = versioning.migrate(
+            Runner(dry_run), resolve_root(root), auto=auto, assume_yes=yes,
+            report=lambda before, after, error: attempts.append((before, after, error)),
+        )
     except Exception as error:
         # --auto は git のフックから呼ばれるため、migration の読み込み失敗なども含めて終了コード 0 にする
         if not auto and not isinstance(error, DevEnvError):
             raise
         typer.secho(f"エラー: {error}", fg=typer.colors.RED, err=True)
         code = 0 if auto else 1
+    for before, after, error in attempts:
+        summary = f"{before} → {after}" + (f": {error}" if error else "")
+        options = {"root": root, "auto": auto, "yes": yes}
+        operations.record("migrate", options, started, now(), exit_code=code, succeeded=error is None, summary=summary)
     raise typer.Exit(code)
 
 
@@ -99,6 +124,7 @@ def check_health(
     as_json: Annotated[bool, typer.Option("--json", help="結果を JSON で出力する")] = False,
 ) -> None:
     """開発環境が正常に動いているかを、変更を加えずに確認する。"""
+    started = now()
     outcomes = health.run_health(health.HealthContext(Runner(), resolve_root(root)))
     summary = health.summarize(outcomes)
     if as_json:
@@ -114,8 +140,11 @@ def check_health(
             if outcome.hint and outcome.status in (health.WARN, health.FAIL):
                 typer.echo(f"         → {outcome.hint}")
         typer.echo("\n" + " / ".join(f"{status} {count}" for status, count in summary.items()))
-    if summary[health.FAIL]:
-        raise typer.Exit(1)
+    code = 1 if summary[health.FAIL] else 0
+    counts = " / ".join(f"{status} {count}" for status, count in summary.items())
+    options = {"root": root, "json": as_json}
+    operations.record("check-health", options, started, now(), exit_code=code, succeeded=code == 0, summary=counts)
+    raise typer.Exit(code)
 
 
 @app.command("version")
