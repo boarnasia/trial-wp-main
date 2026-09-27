@@ -11,6 +11,7 @@ from ..config import (
     CADDY_VOLUMES,
     DASHBOARD_DOMAIN,
     DASHBOARD_IMAGE,
+    DASHBOARD_VOLUME,
     LOCAL_DIR,
     MAIN_DIR,
     MYSQL_IMAGE,
@@ -218,7 +219,7 @@ def uninstall(runner: Runner, root: Path, *, assume_yes: bool) -> None:
                 compose(runner, "down", "--volumes", "--remove-orphans", cwd=path, check=False)
 
     def remove_volumes() -> None:
-        names = [*CADDY_VOLUMES, *(volume for site in SITES for volume in site.volumes)]
+        names = [*CADDY_VOLUMES, DASHBOARD_VOLUME, *(volume for site in SITES for volume in site.volumes)]
         existing = [name for name in names if runner.ok(["docker", "volume", "inspect", name])]
         if existing:
             runner.run(["docker", "volume", "rm", *existing])

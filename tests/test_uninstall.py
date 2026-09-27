@@ -38,7 +38,7 @@ def test_backup_removal_is_suggested(tmp_path, fake_runner, monkeypatch, capsys)
     assert backup.exists()
 
 
-def test_dashboard_image_removed(tmp_path, fake_runner, monkeypatch):
+def test_dashboard_image_and_volume_removed(tmp_path, fake_runner, monkeypatch):
     hosts_file = tmp_path / "hosts"
     hosts_file.write_text("127.0.0.1\tlocalhost\n")
     monkeypatch.setattr(devenv.hosts, "BACKUP_FILE", tmp_path / "hosts.bak")
@@ -51,3 +51,4 @@ def test_dashboard_image_removed(tmp_path, fake_runner, monkeypatch):
     runner = fake_runner()
     devenv.uninstall(runner, tmp_path, assume_yes=True)
     assert ["docker", "image", "rm", "wp-main-dashboard"] in runner.calls
+    assert any(call[:3] == ["docker", "volume", "rm"] and "wp-dashboard-data" in call for call in runner.calls)

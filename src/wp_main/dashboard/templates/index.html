@@ -78,6 +78,30 @@
     </div>
     {% endfor %}
   </div>
+
+  <section class="history" aria-labelledby="history-title">
+    <h2 id="history-title">操作履歴</h2>
+    {% if operations %}
+    <div class="table" role="table" aria-label="操作履歴">
+      <div class="row head" role="row">
+        <div role="columnheader">終了日時</div>
+        <div role="columnheader">コマンド</div>
+        <div role="columnheader">結果</div>
+        <div role="columnheader">要約</div>
+      </div>
+      {% for op in operations %}
+      <div class="row{% if not op.succeeded %} failed{% endif %}" role="row">
+        <div role="cell" class="mono sub">{{ op.finished_at|date:"Y-m-d H:i:s" }}</div>
+        <div role="cell" class="mono">{{ op.command }}</div>
+        <div role="cell">{% if op.succeeded %}<span class="result ok">成功</span>{% else %}<span class="result fail">失敗</span>{% endif %}</div>
+        <div role="cell" class="mono summary">{{ op.summary }}</div>
+      </div>
+      {% endfor %}
+    </div>
+    {% else %}
+    <p class="unset">操作履歴はまだありません。<code>uv run manage.py devenv</code> の install・migrate・check-health を実行すると記録されます。</p>
+    {% endif %}
+  </section>
   <div class="toast" role="status" aria-live="polite" id="toast"></div>
 </main>
 <script src="{% static 'dashboard.js' %}"></script>

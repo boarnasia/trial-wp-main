@@ -40,6 +40,8 @@ DATABASES = {
     "default": {
         "ENGINE": "django.db.backends.sqlite3",
         "NAME": os.environ.get("DJANGO_DB_PATH") or LOCAL_DIR / "db.sqlite3",
+        # gunicorn の複数 worker が同時に書き込んだときに、即座に失敗せず待たせる
+        "OPTIONS": {"timeout": 5, "init_command": "PRAGMA journal_mode=WAL;"},
     }
 }
 
