@@ -98,3 +98,14 @@ test("コピーのボタンでトーストが出る", async () => {
   const message = await waitFor(() => view.evaluate(`document.getElementById("toast").textContent`), (text) => text !== "");
   expect(message).toMatch(/^ホストとポートを(コピーしました|コピーできませんでした)$/);
 });
+
+test("WordPress メニューからプラグイン横断リストを開ける", async () => {
+  await view.navigate(`${BASE}/`);
+  await view.click('nav a[href="/wordpress/plugins"]');
+  const page = await waitFor(
+    () => view.evaluate(`({ path: location.pathname, current: document.querySelector('nav[aria-label="WordPress"] [aria-current="page"]')?.textContent })`),
+    (value) => value.path === "/wordpress/plugins",
+  );
+  expect(page.current).toBe("プラグイン横断リスト");
+  expect(await view.evaluate(`document.body.textContent.includes("まだ取得していません")`)).toBe(true);
+});

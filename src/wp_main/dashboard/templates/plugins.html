@@ -1,0 +1,86 @@
+{% extends "base.html" %}
+{% block title %}プラグイン横断リスト - wp-main{% endblock %}
+{% block subnav %}
+<nav aria-label="WordPress" class="flex h-11 items-center gap-1 border-b border-line bg-surface px-4 sm:px-12">
+  <span class="mr-3 text-xs text-muted">WordPress</span>
+  <a href="/wordpress/plugins" aria-current="page" class="inline-flex h-11 items-center border-b-2 border-accent px-3 text-[13px] font-bold text-text no-underline hover:text-text">プラグイン横断リスト</a>
+</nav>
+{% endblock %}
+{% block content %}
+<section aria-labelledby="plugins-title" class="flex flex-col gap-4">
+  <div class="flex flex-wrap items-end gap-4">
+    <div class="flex grow flex-col gap-1">
+      <h2 id="plugins-title" class="m-0 text-[15px] font-bold">プラグイン横断リスト</h2>
+      <span class="text-xs text-muted">対応状況は wordpress.org 上の最新版の Requires at least・Tested up to から判定{% if table.fetched_at %} · 取得 {{ table.fetched_at|date:"Y-m-d H:i" }}{% endif %}</span>
+    </div>
+    {% if not table.empty %}
+    <div class="flex flex-col gap-1">
+      <label for="plugin-site-filter" class="text-xs text-muted">サイト名で絞り込み</label>
+      <input id="plugin-site-filter" type="search" placeholder="例: wp1" autocomplete="off" class="h-[34px] w-44 rounded border border-control bg-surface px-3 font-mono text-[13px] text-text">
+    </div>
+    <div class="flex flex-col gap-1">
+      <label for="plugin-filter" class="text-xs text-muted">プラグイン名で絞り込み <span class="font-mono" data-plugin-count></span></label>
+      <input id="plugin-filter" type="search" placeholder="名前または slug" autocomplete="off" class="h-[34px] w-60 rounded border border-control bg-surface px-3 text-[13px] text-text">
+    </div>
+    {% endif %}
+    <form method="post" action="/wordpress/plugins/refresh" data-refresh class="m-0">
+      {% csrf_token %}
+      <button type="submit" class="h-[34px] rounded border border-control bg-surface px-3.5 text-xs text-text hover:bg-surface-head">再取得</button>
+    </form>
+  </div>
+
+  {% if table.empty %}
+  <p class="m-0 rounded-lg border border-line bg-surface px-5 py-6 text-[13px] text-muted">まだ取得していません。「再取得」を押すと、各サイトの WP-CLI でプラグインを取得します（サイトは起動しません）。</p>
+  {% else %}
+  <div class="card overflow-x-auto">
+    <table class="w-full border-collapse text-left text-[13px]" aria-label="プラグイン一覧">
+      <thead class="bg-surface-head text-xs text-muted">
+        <tr>
+          <th scope="col" class="px-5 py-2.5 font-normal">プラグイン</th>
+          {% for major in table.majors %}
+          <th scope="col" class="w-28 px-3 py-2.5 font-normal" data-col-major="{{ major }}">WP {{ major }} 対応</th>
+          {% endfor %}
+          {% for site in table.sites %}
+          <th scope="col" class="w-40 px-3 py-2.5 align-top font-normal" data-col-site="{{ site.id }}" data-major="{{ site.major|default_if_none:'' }}">
+            <span class="font-mono">{{ site.id }}{% if site.major %} <span class="text-faint">(v{{ site.major }})</span>{% endif %}</span>
+            {% if site.fetch and not site.fetch.succeeded %}
+            <span class="site-error mt-1 block font-bold text-warn" title="{{ site.fetch.error }}">取得失敗 {{ site.fetch.attempted_at|date:"m-d H:i" }}</span>
+            <span class="block text-warn">{{ site.fetch.error }}</span>
+            {% elif not site.fetched %}
+            <span class="mt-1 block text-faint">未取得</span>
+            {% endif %}
+          </th>
+          {% endfor %}
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in table.rows %}
+        <tr data-plugin="{{ row.search_text }}" data-sites="{{ row.site_ids }}" class="border-t border-divider{% if row.warned %} bg-warn-bg{% endif %}">
+          <td class="px-5 py-3">
+            <div class="flex flex-col gap-0.5">
+              {% if row.url %}<a href="{{ row.url }}" target="_blank" rel="noopener noreferrer" class="font-medium">{{ row.title }}</a>{% else %}<span class="font-medium">{{ row.title }}</span>{% endif %}
+              <span class="font-mono text-xs text-muted">{{ row.slug }}</span>
+            </div>
+          </td>
+          {% for major, status, label in row.majors %}
+          <td class="px-3 py-3" data-col-major="{{ major }}"><span class="compat {{ status }} badge {% if status == 'ok' %}bg-ok-bg text-ok{% elif status == 'ng' %}bg-danger-bg font-bold text-danger{% else %}bg-bg text-muted{% endif %}">{{ label }}</span></td>
+          {% endfor %}
+          {% for cell in row.cells %}
+          <td class="px-3 py-3" data-col-site="{{ cell.site }}">
+            {% if cell.installed %}
+            <div class="flex flex-col gap-0.5">
+              <span class="font-mono{% if cell.status == 'inactive' %} text-faint{% endif %}">{{ cell.version|default:"?" }}{% if cell.status == "inactive" %}（無効）{% endif %}{% if cell.status == "must-use" %} <span class="rounded border border-line px-1 text-[11px] text-muted">MU</span>{% endif %}</span>
+              {% if cell.warning %}<span class="text-xs font-bold text-warn">{{ cell.warning }}</span>{% endif %}
+            </div>
+            {% else %}<span class="text-faint">-</span>{% endif %}
+          </td>
+          {% endfor %}
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    <p data-plugin-empty hidden class="m-0 border-t border-divider px-5 py-5 text-[13px] text-muted">条件に一致するプラグインはありません。</p>
+  </div>
+  {% endif %}
+</section>
+{% endblock %}

@@ -1,0 +1,63 @@
+{% load static %}<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{% block title %}wp-main dashboard{% endblock %}</title>
+<link rel="icon" href="{% static 'favicon.svg' %}" type="image/svg+xml">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans+JP:wght@400;500;700&display=swap">
+<link rel="stylesheet" href="{% static 'dist/dashboard.css' %}">
+</head>
+<body>
+<header class="flex flex-wrap items-center gap-4 border-b border-line bg-surface px-4 py-[18px] sm:px-12">
+  <h1 class="m-0 text-lg font-bold">wp-main</h1>
+  <span class="font-mono text-xs text-muted">dev session · {{ sites|length }} sites</span>
+  {% if env_version %}
+  <span class="rounded border border-line px-2 py-0.5 font-mono text-xs text-ink">環境 v{{ env_version }}</span>
+  {% if env_outdated %}<span class="text-xs font-bold text-warn">v{{ env_latest }} への移行が必要: <code class="font-mono">uv run manage.py devenv migrate</code></span>{% endif %}
+  {% endif %}
+  <span class="grow"></span>
+  <nav aria-label="ページ" class="flex gap-1">
+    <a href="/"{% if section == "dashboard" %} aria-current="page"{% endif %} class="nav-item">ダッシュボード</a>
+    <a href="/wordpress/plugins"{% if section == "wordpress" %} aria-current="page"{% endif %} aria-haspopup="true" class="nav-item gap-1.5">WordPress<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9l6 6 6-6"></path></svg></a>
+  </nav>
+  {% if can_shutdown %}
+  <button type="button" id="shutdown-open" class="ml-2 inline-flex size-9 items-center justify-center rounded-full border border-ok-line bg-ok-bg text-ok" aria-label="開発セッションを終了" title="開発セッションを終了（serve down）">{% include "icons/power.html" %}</button>
+  {% endif %}
+</header>
+
+{% block subnav %}{% endblock %}
+<main class="flex flex-col gap-8 px-4 py-8 sm:px-12">
+  {% if messages %}
+  <ul class="m-0 flex list-none flex-col gap-2 p-0" aria-live="polite">
+    {% for message in messages %}<li class="message {{ message.tags }} rounded-lg border border-line bg-surface px-4 py-3 text-sm">{{ message }}</li>{% endfor %}
+  </ul>
+  {% endif %}
+{% block content %}{% endblock %}
+</main>
+
+
+<div id="toast" role="status" aria-live="polite" class="pointer-events-none fixed bottom-6 left-1/2 -translate-x-1/2 rounded bg-text px-4 py-2 text-sm text-bg empty:hidden"></div>
+
+{% if can_shutdown %}
+<dialog id="shutdown-dialog" aria-labelledby="shutdown-title" data-csrf="{{ csrf_token }}" class="m-auto w-[440px] max-w-[calc(100vw-32px)] rounded-lg border-0 bg-surface p-6 text-text shadow-xl">
+  <div class="flex flex-col gap-4">
+    <h2 id="shutdown-title" class="m-0 text-[17px] font-bold">開発セッションを終了しますか？</h2>
+    <p class="m-0 text-[13px] leading-relaxed text-ink">起動中のサイトと共有インフラ（wp-mysql・wp-caddy）をすべて停止します。このダッシュボードも止まるため、このページは応答しなくなります。</p>
+    <p class="m-0 font-mono text-xs text-muted">uv run manage.py serve down</p>
+    <div class="flex justify-end gap-2">
+      <button type="button" id="shutdown-cancel" class="h-[38px] rounded border border-control bg-surface px-4 text-[13px] text-text">キャンセル</button>
+      <button type="button" id="shutdown-confirm" class="h-[38px] rounded border-0 bg-danger px-4 text-[13px] font-bold text-on-danger">終了する</button>
+    </div>
+  </div>
+</dialog>
+<div id="session-ended" hidden class="fixed inset-0 flex flex-col items-center justify-center gap-2.5 bg-bg px-4 text-center">
+  <p class="m-0 text-[17px] font-bold">開発セッションを終了しています</p>
+  <p class="m-0 text-[13px] text-muted">再開するには端末で <code class="font-mono">uv run manage.py serve up</code> を実行してください。止まらないときは <code class="font-mono">uv run manage.py serve logs serve</code> で確認してください。</p>
+</div>
+{% endif %}
+<script type="module" src="{% static 'dist/dashboard.js' %}"></script>
+</body>
+</html>
