@@ -17,11 +17,11 @@ wp-main が共通リバースプロキシとして各サイトとダッシュボ
 - **THEN** WordPress 6 系サイトのページが返る
 
 #### Scenario: ダッシュボードへのルーティング
-- **WHEN** `serve` を実行している状態で `https://local.wp-main.yamashita109.com/` にアクセスする
+- **WHEN** 開発セッション中に `https://local.wp-main.yamashita109.com/` にアクセスする
 - **THEN** ダッシュボードのページが返る
 
 #### Scenario: ダッシュボードが起動していない
-- **WHEN** `serve` を実行していない状態で `https://local.wp-main.yamashita109.com/` にアクセスする
+- **WHEN** 開発セッション中にダッシュボードのプロセスだけが応答しない状態で `https://local.wp-main.yamashita109.com/` にアクセスする
 - **THEN** 502 が返り、各サイトへのルーティングは影響を受けない
 
 #### Scenario: サイトが停止している
