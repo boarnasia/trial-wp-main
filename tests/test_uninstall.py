@@ -38,7 +38,7 @@ def test_backup_removal_is_suggested(tmp_path, fake_runner, monkeypatch, capsys)
     assert backup.exists()
 
 
-def test_dashboard_image_and_volume_removed(tmp_path, fake_runner, monkeypatch):
+def test_db_and_legacy_dashboard_removed(tmp_path, fake_runner, monkeypatch):
     hosts_file = tmp_path / "hosts"
     hosts_file.write_text("127.0.0.1\tlocalhost\n")
     monkeypatch.setattr(devenv.hosts, "BACKUP_FILE", tmp_path / "hosts.bak")
@@ -48,7 +48,24 @@ def test_dashboard_image_and_volume_removed(tmp_path, fake_runner, monkeypatch):
     monkeypatch.setattr(devenv, "CA_CERT_FILE", tmp_path / "root.crt")
     monkeypatch.setattr(devenv, "MAIN_DIR", tmp_path)
 
+    local = tmp_path / ".local"
+    (local / "locks").mkdir(parents=True)
+    for name in ("db.sqlite3", "db.sqlite3-wal"):
+        (local / name).write_text("")
+
     runner = fake_runner()
     devenv.uninstall(runner, tmp_path, assume_yes=True)
+    assert not (local / "db.sqlite3").exists() and not (local / "db.sqlite3-wal").exists()
+    assert not (local / "locks").exists()
+    assert ["docker", "rm", "-f", "wp-dashboard"] in runner.calls
     assert ["docker", "image", "rm", "wp-main-dashboard"] in runner.calls
     assert any(call[:3] == ["docker", "volume", "rm"] and "wp-dashboard-data" in call for call in runner.calls)
+
+
+def test_running_serve_is_warned(tmp_path, fake_runner, monkeypatch, capsys):
+    monkeypatch.setattr(typer, "confirm", lambda *a, **k: False)
+    monkeypatch.setattr(devenv, "load_state", lambda: {})
+    monkeypatch.setattr(devenv, "dashboard_running", lambda: True)
+    with pytest.raises(typer.Exit):
+        devenv.uninstall(fake_runner(), tmp_path, assume_yes=False)
+    assert "devenv serve が動いています" in capsys.readouterr().out

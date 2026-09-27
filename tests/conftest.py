@@ -58,8 +58,19 @@ def manage(capsys):
 
 
 @pytest.fixture(autouse=True)
-def sent_operations(monkeypatch) -> list[dict]:
-    """テストから実際のダッシュボードへ履歴を送らないよう、送信を記録だけにする。"""
-    sent: list[dict] = []
-    monkeypatch.setattr(operations, "send", sent.append)
-    return sent
+def recorded_operations(monkeypatch) -> list[dict]:
+    """テストが実際の .local/db.sqlite3 に履歴を書かないよう、書き込みを記録だけにする。"""
+    recorded: list[dict] = []
+    monkeypatch.setattr(operations, "write", recorded.append)
+    return recorded
+
+
+@pytest.fixture(autouse=True)
+def prepared_db(monkeypatch) -> list[bool]:
+    """install のテストが実際の .local/db.sqlite3 を作らないよう、DB の準備を記録だけにする。"""
+    from wp_main import devenv
+
+    prepared: list[bool] = []
+    monkeypatch.setattr(devenv, "prepare_db", lambda runner: prepared.append(runner.dry_run))
+    monkeypatch.setattr(devenv, "dashboard_running", lambda: False)
+    return prepared

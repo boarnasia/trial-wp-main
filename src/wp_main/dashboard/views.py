@@ -1,57 +1,50 @@
-import hmac
-import os
-from datetime import datetime
-from typing import Literal
-
-from django.db import transaction
-from django.http import JsonResponse
+from django.contrib import messages
+from django.http import Http404, HttpResponseForbidden, JsonResponse
+from django.shortcuts import redirect
 from django.template.response import TemplateResponse
-from django.views.decorators.http import require_safe
-from ninja import Field, NinjaAPI, Query, Schema, Status
-from ninja.security import HttpBearer
+from django.utils import timezone
+from django.views.decorators.http import require_POST, require_safe
+from ninja import NinjaAPI
 
-from .data import find_password, load_sites
+from .. import operations
+from ..config import SITES
+from ..runner import DevEnvError, Runner
+from ..sites import proxy_is_public
+from . import power
+from .data import find_password, load_sites, sites_root
 from .models import Operation
+
+ACTIONS = {"start": (power.start, "起動"), "stop": (power.stop, "停止")}
+PUBLIC_REASON = "プロキシを LAN に公開している（PROXY_BIND_ADDRESS）ため、起動・停止は無効です"
 
 NO_STORE = {"Cache-Control": "no-store"}
 # FastAPI 版と同じく日本語をエスケープせずに返す
 UTF8 = {"ensure_ascii": False}
 
 api = NinjaAPI(title="wp-main dashboard", docs_url=None, openapi_url=None)
-SUMMARY_LIMIT = Operation._meta.get_field("summary").max_length
 RECENT_OPERATIONS = 20
-
-
-class TokenAuth(HttpBearer):
-    def authenticate(self, request, token: str) -> bool:
-        expected = os.environ.get("DASHBOARD_API_TOKEN", "")
-        # トークンが未設定のときに空文字列の一致で通してしまわないようにする
-        return bool(expected) and hmac.compare_digest(token.encode(), expected.encode())
-
-
-class OperationIn(Schema):
-    command: Literal["install", "migrate", "check-health"]
-    options: dict = {}
-    started_at: datetime
-    finished_at: datetime
-    exit_code: int
-    succeeded: bool
-    summary: str
-
-
-class OperationOut(OperationIn):
-    id: int
-    command: str
-
-
-class ListParams(Schema):
-    limit: int = Field(20, ge=1, le=100)
 
 
 # curl -I などの HEAD による疎通確認で 405 にならないようにする
 @require_safe
 def index(request):
-    context = {"sites": load_sites(), "operations": Operation.objects.all()[:RECENT_OPERATIONS]}
+    runner, root, public = Runner(), sites_root(), proxy_is_public()
+    rows = []
+    for view, site in zip(load_sites(root), SITES):
+        state = power.inspect(runner, site, root)
+        busy = power.is_busy(site)
+        rows.append((view, {
+            "state": state,
+            "busy": busy,
+            "disabled": public or busy or state.state == power.UNKNOWN,
+            "action": "start" if state.state == power.STOPPED else "stop",
+        }))
+    context = {
+        "rows": rows,
+        "sites": [view for view, _ in rows],
+        "public_reason": PUBLIC_REASON if public else "",
+        "operations": Operation.objects.all()[:RECENT_OPERATIONS],
+    }
     return TemplateResponse(request, "index.html", context, headers=NO_STORE)
 
 
@@ -63,19 +56,32 @@ def password(request, site_id: str):
     return JsonResponse({"password": value}, headers=NO_STORE, json_dumps_params=UTF8)
 
 
-@api.post("/operations", auth=TokenAuth(), response={201: OperationOut})
-def record_operation(request, payload: OperationIn):
-    values = payload.dict()
-    values["summary"] = values["summary"][:SUMMARY_LIMIT]
-    with transaction.atomic():
-        operation = Operation.objects.create(**values)
-        Operation.prune()
-    return Status(201, operation)
-
-
-@api.get("/operations", auth=TokenAuth(), response=list[OperationOut])
-def list_operations(request, params: Query[ListParams]):
-    return Operation.objects.all()[: params.limit]
+@require_POST
+def site_action(request, site_id: str, action: str):
+    site = next((site for site in SITES if site.id == site_id), None)
+    if site is None or action not in ACTIONS:
+        raise Http404
+    if proxy_is_public():
+        return HttpResponseForbidden(PUBLIC_REASON)
+    run, label = ACTIONS[action]
+    started = timezone.now()
+    try:
+        with power.site_lock(site):
+            run(Runner(), site, sites_root())
+    except power.Busy:
+        messages.warning(request, f"{site.id} は別の操作を実行中です。終わってからやり直してください")
+        return redirect("/")
+    except DevEnvError as error:
+        summary = f"{site.id} の{label}に失敗しました: {error}"
+        operations.record(f"site-{action}", {"site": site.id}, started, timezone.now(),
+                          exit_code=1, succeeded=False, summary=summary)
+        messages.error(request, summary)
+        return redirect("/")
+    summary = f"{site.id} を{label}しました"
+    operations.record(f"site-{action}", {"site": site.id}, started, timezone.now(),
+                      exit_code=0, succeeded=True, summary=summary)
+    messages.success(request, summary)
+    return redirect("/")
 
 
 @require_safe

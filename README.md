@@ -8,15 +8,17 @@ Caddy リバースプロキシ（内部 CA による HTTPS）と、両サイト�
 | wp1 | `../wp-wp1`（trial-wp-wp1） | https://local.wp1.yamashita109.com/ | `wordpress:7.1-apache` | 127.0.0.1:8081 |
 | wp2 | `../wp-wp2`（trial-wp-wp2） | https://local.wp2.yamashita109.com/ | `wordpress:6.7-apache` | 127.0.0.1:8082 |
 
-ダッシュボード: https://local.wp-main.yamashita109.com/ （両サイトへのリンク、ログインリンク、管理者の ID/PW を表示する）
+ダッシュボード: https://local.wp-main.yamashita109.com/ （両サイトへのリンク、ログインリンク、管理者の ID/PW、サイトの起動・停止、操作履歴）。ホストで `uv run manage.py devenv serve` を動かしている間だけ使える
 
 ```
 {root}/
-├── wp-main/   Caddyfile, docker-compose.yml（include で両サイトを取り込む）, CLI
+├── wp-main/   Caddyfile, docker-compose.yml（include で両サイトを取り込む）, CLI, ダッシュボード（ホストで動く）
 ├── wp-wp1/    wp1-wordpress + wp1-db
 └── wp-wp2/    wp2-wordpress + wp2-db
         └── wp-global-net（外部ネットワーク）で Caddy と WordPress を接続。DB はサイト内ネットワークだけ
 ```
+
+コンテナで動かすのは Caddy と WordPress・DB などの実行環境だけ。ダッシュボードのような開発用の道具は、ホストのプロセスとして `devenv serve` がまとめて起動する（Caddy は `host.docker.internal` 経由で転送する）。
 
 ## 前提
 
@@ -31,6 +33,7 @@ uv run manage.py help devenv                  # コマンド一覧
 uv run manage.py devenv version
 uv run manage.py devenv check-health          # 環境が正常か確認（読み取りのみ）
 uv run manage.py devenv migrate               # 環境を最新の環境バージョンへ移行
+uv run manage.py devenv serve                 # ダッシュボードを起動（前面で動く。Ctrl-C で停止）
 uv run manage.py devenv install               # 構築して起動（sudo のパスワードを求められる）
 uv run manage.py devenv install --dry-run     # 実行内容の確認だけ
 uv run manage.py devenv uninstall             # 確認後にすべて削除（--yes で確認を省略）
@@ -46,31 +49,52 @@ CLI はダッシュボードと同じ Django プロジェクトの management co
 4. `/etc/hosts` に `# >>> wp-dev-env >>>` ブロックを追加する（sudo）。書き換え前の内容は `/etc/hosts.wp-dev-env.bak` に保存する。マーカーの対応が崩れている場合は書き換えずに止まる
 5. `docker compose up -d --wait` で全サービスを起動し、WordPress を初期セットアップする
 6. Caddy の内部 CA を System キーチェーンに信頼済みとして登録する（sudo）。`--skip-trust` で省略
+7. ダッシュボードの DB（`.local/db.sqlite3`）を最新のスキーマにし、最後に `devenv serve` の実行方法を表示する
 
 主なオプション: `--root <dir>`（既定は wp-main の親）、`--no-start`、`--skip-trust`。
 
-`devenv uninstall` は、コンテナ・ボリューム・イメージ・ネットワーク・hosts ブロック・CA・サイトディレクトリ・`.local/` の状態ファイルを削除する。サイトに未コミットや未 push の変更があれば警告する。`/etc/hosts.wp-dev-env.bak` は復旧用に残し、削除コマンド（`sudo rm /etc/hosts.wp-dev-env.bak`）を最後に案内する。
+`devenv uninstall` は、コンテナ・ボリューム・イメージ・ネットワーク・hosts ブロック・CA・サイトディレクトリ・`.local/` の状態ファイルとダッシュボードの DB を削除する。`devenv serve` が動いていれば、先に止めるよう表示する。サイトに未コミットや未 push の変更があれば警告する。`/etc/hosts.wp-dev-env.bak` は復旧用に残し、削除コマンド（`sudo rm /etc/hosts.wp-dev-env.bak`）を最後に案内する。
 
 管理者のユーザー名とパスワードは各サイトの `.env`（`WP_ADMIN_USER` / `WP_ADMIN_PASSWORD`）にある。
 
 ## ダッシュボード
 
-`https://local.wp-main.yamashita109.com/` で、両サイトの URL・ログインリンク・デバッグ用ポート・管理者のユーザー名とパスワードを確認できる。
+```bash
+uv run manage.py devenv serve                 # 別の端末で動かしたままにする
+```
 
-- 値は表示のたびに `../wp-wp1/.env` と `../wp-wp2/.env` から読み込む。`.env` を書き換えれば、再起動せずに次の表示から反映される
-- サイトディレクトリは読み取り専用でマウントしている
+`https://local.wp-main.yamashita109.com/` で、両サイトの URL・ログインリンク・デバッグ用ポート・管理者のユーザー名とパスワード・起動状態を確認できる。
+
+- `devenv serve` は、ダッシュボード（gunicorn）を `127.0.0.1:8000` だけで待ち受けて起動する。ポートは wp-main の `.env` の `DASHBOARD_PORT` で変えられる。変えたら `devenv serve` を再起動し、`docker compose up -d` で Caddy にも反映する
+- `devenv serve` は、ホストで動かす開発用のプロセスをまとめて起動する仕組みで、今はダッシュボードだけを動かす。vite などは `src/wp_main/processes.py` の一覧に加える。1 つが落ちると全体を止める
+- `devenv serve` を動かしていないときは、ダッシュボードの URL は 502 になる（各サイトには影響しない）
+- 値は表示のたびに `{root}/wp-wp1/.env` と `{root}/wp-wp2/.env` から読み込む。`.env` を書き換えれば、再起動せずに次の表示から反映される。ダッシュボードはサイトディレクトリに書き込まない
 - パスワードは伏せて表示し、表示ボタンかコピーボタンを押したときだけ取得する
+
+### サイトの起動・停止
+
+各サイトの行の「起動」「停止」ボタンで、そのサイトの WordPress と DB を起動・停止できる。
+
+- 起動は `docker compose up -d --wait wp1-wordpress`（DB が healthy になるまで最大 120 秒待つ）、停止は `docker compose stop wp1-wordpress wp1-db`。コンテナとボリュームは消さない。プロキシと他のサイトには触れない
+- 一括起動したサイトは wp-main のプロジェクトで、単体起動したサイトはそのサイトのディレクトリのプロジェクトで操作する
+- 同じサイトへの操作は 1 つずつしか実行しない。実行中の行は「処理中」になる
+- 操作の結果は画面の上部と操作履歴（`site-start` / `site-stop`）に残る
+- ボタンは CSRF トークン付きの POST でだけ動く。wp-main の `.env` で `PROXY_BIND_ADDRESS` を `127.0.0.1` 以外にしている間は無効になる
+
+### 以前の環境からの移行
+
 - この機能を入れる前に構築した環境では、`uv run manage.py devenv migrate` を実行する（dev-env:migration 2。hosts にドメインを加えるため sudo のパスワードを求められ、pull 後の自動移行では実行されない）
-- Django 版への切り替え（dev-env:migration 3）は、`git pull` の後に自動で適用される。wp-main の `.env` に `DJANGO_SECRET_KEY` を加え、プロキシが起動中ならダッシュボードを再ビルドする
+- Django 版への切り替え（dev-env:migration 3）と操作履歴（4）は、`git pull` の後に自動で適用される
+- ホストへの移行（dev-env:migration 5）も `git pull` の後に自動で適用される。旧ダッシュボードのコンテナ `wp-dashboard`・イメージ・ボリューム `wp-dashboard-data` を削除し、ボリュームの操作履歴は `.local/db.sqlite3` に写す。プロキシが起動中なら新しい転送先で作り直す。以後は `devenv serve` でダッシュボードを起動する
 
 ## 操作履歴
 
-`devenv install`・`devenv migrate`・`devenv check-health` の結果は、ダッシュボードのサイト一覧の下に新しい順で 20 件表示される（DB には最大 1000 件を残す）。
+`devenv install`・`devenv migrate`・`devenv check-health` の結果と、ダッシュボードからのサイトの起動・停止は、ダッシュボードのサイト一覧の下に新しい順で 20 件表示される（DB には最大 1000 件を残す）。
 
-- CLI はコマンドの終了時に、ダッシュボードの API（`/api/operations`）へ結果を送る。認証には wp-main の `.env` の `DASHBOARD_API_TOKEN` を使う
-- ダッシュボードが止まっているなどで送れないときは、`警告: 操作履歴を記録できませんでした` を表示するだけで、コマンドの結果と終了コードは変わらない。送れなかった履歴は後から送り直さない
-- 記録しないもの: `--dry-run` の実行、何も適用しなかった `devenv migrate`、`devenv uninstall`（最後に DB のボリュームごと消えるため）
-- `.env` の `DASHBOARD_API_TOKEN` を書き換えたら、`docker compose up -d --build dashboard` でコンテナに反映する
+- CLI もダッシュボードも、`.local/db.sqlite3` に直接書き込む。ダッシュボードを起動していなくても記録される
+- 書き込めないときは `警告: 操作履歴を記録できませんでした` を表示するだけで、コマンドの結果と終了コードは変わらない
+- 記録しないもの: `--dry-run` の実行、何も適用しなかった `devenv migrate`、`devenv uninstall`（最後に DB ごと消えるため）、`devenv serve`
+- 以前使っていた操作履歴の API（`/api/operations`）とトークン `DASHBOARD_API_TOKEN` は廃止した。`.env` に残っていても使われない
 
 ## 公開範囲（PROXY_BIND_ADDRESS）
 
@@ -82,6 +106,7 @@ echo 'PROXY_BIND_ADDRESS=0.0.0.0' >> .env         # 常に公開する（実行�
 ```
 
 `0.0.0.0` にすると、同じ LAN の端末からダッシュボードの管理者パスワードも見えるようになる。信頼できないネットワークでは使わない。
+LAN に公開している間は、ダッシュボードからのサイトの起動・停止を無効にする。判定には wp-main の `.env` の値を使うので、実行時の環境変数だけで公開した場合は検出できない。公開するときは `.env` に書く。
 
 ## 環境バージョンと移行
 
@@ -92,7 +117,7 @@ migration は 2 種類あり、呼び分ける。この節の migration は dev-
 | 呼び方 | 対象 | 置き場所 | 実行 | 記録先 |
 | --- | --- | --- | --- | --- |
 | dev-env:migration | 開発環境のリソース（hosts、ボリューム、`.env` など） | `src/wp_main/devenv/migrations/` | `uv run manage.py devenv migrate` | `.local/dev-env-state.json` |
-| django:migration | Django の DB スキーマ | 各 Django app の `migrations/` | ダッシュボードのコンテナの起動時に自動 | ダッシュボードの DB（ボリューム `wp-dashboard-data`） |
+| django:migration | Django の DB スキーマ | 各 Django app の `migrations/` | `devenv serve`・`devenv install`・操作履歴の記録の前に自動 | `.local/db.sqlite3` |
 
 - 最新のバージョン: `src/wp_main/devenv/migrations/` にある migration の最大番号（migration がなければ 1）
 - 導入済みのバージョン: `.local/dev-env-state.json` の `env_version`（マシンごと、git の管理外）。記録がない既存の環境は 1 とみなす
@@ -161,9 +186,9 @@ sudo は使わず、環境も変更しない。確認する項目は次のとお
 | グループ | 項目 |
 | --- | --- |
 | 構成 | サイトリポジトリの origin、各 `.env` の有無と `change-me` の残り |
-| ホスト | 各サイトとダッシュボードのドメインの名前解決（127.0.0.1）、`wp-global-net`、Caddy の CA がキーチェーンに登録されているか |
-| コンテナ | Caddy・各サイトの WordPress と DB・ダッシュボードが running か（DB とダッシュボードは healthy か） |
-| HTTP と WordPress | 各サイトとダッシュボードの HTTPS の応答と証明書の検証、HTTP から HTTPS へのリダイレクト、操作履歴 API に接続できるか（できなければ WARN）、WordPress がインストール済みか、メジャーバージョン |
+| ホスト | 各サイトとダッシュボードのドメインの名前解決（127.0.0.1）、`wp-global-net`、Caddy の CA がキーチェーンに登録されているか、`devenv serve` のダッシュボードが応答するか（しなければ WARN） |
+| コンテナ | Caddy・各サイトの WordPress と DB が running か（DB は healthy か） |
+| HTTP と WordPress | 各サイトとダッシュボードの HTTPS の応答と証明書の検証、HTTP から HTTPS へのリダイレクト、WordPress がインストール済みか、メジャーバージョン |
 
 - 前提の項目が FAIL なら、その項目は SKIP になる（例: Caddy が止まっていれば HTTP の項目はすべて SKIP）。WARN と FAIL には対処方法が表示される。
 - FAIL が 1 つでもあれば終了コード 1、WARN だけなら 0。
@@ -173,11 +198,11 @@ sudo は使わず、環境も変更しない。確認する項目は次のとお
 
 ```bash
 uv run pytest
-DASHBOARD_SITES_DIR=/path/to/sites DJANGO_DEBUG=1 uv run manage.py runserver   # ダッシュボードだけをローカルで起動（<dir>/wp1/.env と <dir>/wp2/.env を読む）
+DJANGO_DEBUG=1 uv run manage.py runserver 127.0.0.1:8000   # 自動リロード付きでダッシュボードを起動（devenv serve の代わり）
 ```
 
 ダッシュボードと CLI は 1 つの Django プロジェクト（`manage.py`、`src/wp_main/settings.py`）にまとめている。ダッシュボードは app `wp_main.dashboard`（API は Django Ninja）、CLI は app `wp_main.cli` の management command。
 
-DB は SQLite で、ダッシュボードのコンテナだけがマウントする名前付きボリューム `wp-dashboard-data`（`/data/db.sqlite3`）に置く。書き込むのはダッシュボードだけにし、CLI から DB を更新する必要があるときは Web API を呼ぶ。macOS の Docker Desktop の bind mount では SQLite のファイルロックが信頼できないため。django:migration はコンテナの起動時に適用されるので、ホストで `uv run manage.py migrate` を実行する必要はない（実行するとホストの `.local/db.sqlite3` に無関係な DB ができるだけ）。
+DB は SQLite（`.local/db.sqlite3`、git の管理外）。ダッシュボードと CLI はどちらもホストで動き、同じファイルを直接読み書きする（WAL モード）。django:migration は `devenv serve`・`devenv install`・操作履歴の記録の前に自動で適用されるので、手で `uv run manage.py migrate` を実行する必要はない。
 
 サイトの雛形は `templates/wp-site/` にある（`{{SITE_ID}}` などをサイトごとに置換する）。雛形は空のリモートを初期化するときだけ使う。初期化した後は、各サイトリポジトリ側を直接編集する。

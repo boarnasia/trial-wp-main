@@ -18,19 +18,34 @@
     <span class="meta header-note">ID/PW は ../wp-*/.env から読み込み</span>
   </header>
 
+  {% if messages %}
+  <ul class="messages" aria-live="polite">
+    {% for message in messages %}<li class="message {{ message.tags }}">{{ message }}</li>{% endfor %}
+  </ul>
+  {% endif %}
+  {% if public_reason %}<p class="problem">{{ public_reason }}</p>{% endif %}
+
   <div class="table" role="table" aria-label="サイト一覧">
     <div class="row head" role="row">
       <div role="columnheader">サイト</div>
+      <div role="columnheader">状態</div>
       <div role="columnheader">URL</div>
       <div role="columnheader">ユーザー名</div>
       <div role="columnheader">パスワード</div>
       <div role="columnheader">ログイン</div>
     </div>
-    {% for s in sites %}
+    {% for s, p in rows %}
     <div class="row" role="row">
       <div role="cell" class="site">
         <span class="mono site-id">{{ s.id }}</span>
         {% if s.version %}<span class="sub">{{ s.version }}</span>{% endif %}
+      </div>
+      <div role="cell" class="power">
+        <span class="state {{ p.state.state }}"{% if p.state.detail %} title="{{ p.state.detail }}"{% endif %}>{% if p.busy %}処理中{% else %}{{ p.state.label }}{% endif %}</span>
+        <form method="post" action="/sites/{{ s.id }}/{{ p.action }}" data-power>
+          {% csrf_token %}
+          <button type="submit" class="power-button"{% if p.disabled %} disabled{% endif %}>{% if p.action == "start" %}起動{% else %}停止{% endif %}</button>
+        </form>
       </div>
       {% if not s.env_found %}
       <div role="cell" class="problem span-rest">
@@ -99,7 +114,7 @@
       {% endfor %}
     </div>
     {% else %}
-    <p class="unset">操作履歴はまだありません。<code>uv run manage.py devenv</code> の install・migrate・check-health を実行すると記録されます。</p>
+    <p class="unset">操作履歴はまだありません。<code>uv run manage.py devenv</code> の install・migrate・check-health や、サイトの起動・停止を行うと記録されます。</p>
     {% endif %}
   </section>
   <div class="toast" role="status" aria-live="polite" id="toast"></div>

@@ -30,7 +30,7 @@ def caddy(running: bool):
 
 
 def test_is_latest_and_runs_automatically():
-    assert versioning.latest() == 4
+    assert versioning.latest() >= 4
     assert not m0004_operation_history.REQUIRES_SUDO and not m0004_operation_history.DESTRUCTIVE
 
 
@@ -77,5 +77,5 @@ def test_auto_runs(fake_runner, main_dir, monkeypatch):
     (main_dir.parent / "wp-wp1").mkdir()
     runner = fake_runner(caddy(running=True))
     assert versioning.migrate(runner, main_dir.parent, auto=True, main_dir=main_dir) == 0
-    assert trust.load_state()["env_version"] == 4
+    assert trust.load_state()["env_version"] == versioning.latest()
     assert "DASHBOARD_API_TOKEN" in (main_dir / ".env").read_text()

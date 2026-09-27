@@ -21,38 +21,17 @@ services:
       WP2_DOMAIN: ${WP2_DOMAIN}
       # 既存の .env は上書きされないため、DASHBOARD_DOMAIN がない環境でも動くよう既定値を持たせる
       DASHBOARD_DOMAIN: ${DASHBOARD_DOMAIN:-local.wp-main.yamashita109.com}
+      # ダッシュボードはホストで devenv serve が動かす。ポートは devenv serve と同じ .env の値を使う
+      DASHBOARD_PORT: ${DASHBOARD_PORT:-8000}
+    # Docker Desktop 以外のエンジンでも host.docker.internal をホストに向ける
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
       - caddy_data:/data
       - caddy_config:/config
     networks:
       - wp-global-net
-
-  dashboard:
-    build:
-      context: .
-      dockerfile: dashboard.Dockerfile
-    # dev-env:uninstall が名前で削除できるよう固定する
-    image: wp-main-dashboard
-    container_name: wp-dashboard
-    restart: unless-stopped
-    # :? で必須にすると、キーのない環境で docker compose down まで失敗する
-    environment:
-      DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY:-}
-      DASHBOARD_API_TOKEN: ${DASHBOARD_API_TOKEN:-}
-    # ファイル単体のマウントだと、エディタが置き換え保存したときに古い .env を読み続ける
-    volumes:
-      - dashboard_data:/data
-      - ../wp-wp1:/sites/wp1:ro
-      - ../wp-wp2:/sites/wp2:ro
-    networks:
-      - wp-global-net
-    healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/healthz')"]
-      interval: 10s
-      timeout: 5s
-      retries: 3
-      start_period: 5s
 
 networks:
   wp-global-net:
@@ -64,6 +43,3 @@ volumes:
     name: wp-caddy-data
   caddy_config:
     name: wp-caddy-config
-  # ダッシュボードの DB（操作履歴）。書き込むのはダッシュボードのコンテナだけ
-  dashboard_data:
-    name: wp-dashboard-data

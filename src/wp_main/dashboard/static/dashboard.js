@@ -63,3 +63,12 @@ document.addEventListener("click", async (event) => {
     }
   }
 });
+
+// 起動は完了まで数十秒かかるため、二重送信を防ぎつつ進行中であることを示す
+document.addEventListener("submit", (event) => {
+  const form = event.target.closest("form[data-power]");
+  if (!form) return;
+  const button = form.querySelector("button");
+  button.disabled = true;
+  button.textContent = "処理中…";
+});

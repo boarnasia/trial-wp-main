@@ -3,11 +3,10 @@ import re
 from dataclasses import dataclass
 from pathlib import Path
 
-from ..config import SITES, Site
+from ..config import SITES, Site, resolve_root
 from ..sites import parse_env
 
 REQUIRED_KEYS = ("WP_HOME", "WP_IMAGE", "WP_DEBUG_PORT", "WP_ADMIN_USER", "WP_ADMIN_PASSWORD")
-DEFAULT_SITES_DIR = "/sites"
 
 
 @dataclass(frozen=True)
@@ -28,14 +27,16 @@ class SiteView:
         return self.url.removeprefix("https://").strip("/") if self.url else None
 
 
-def sites_dir() -> Path:
-    return Path(os.environ.get("DASHBOARD_SITES_DIR", DEFAULT_SITES_DIR))
+def sites_root() -> Path:
+    # devenv serve --root の値を、ダッシュボードのプロセスに環境変数で引き継ぐ
+    value = os.environ.get("WP_MAIN_ROOT")
+    return resolve_root(Path(value) if value else None)
 
 
 def read_site_env(site: Site, base: Path) -> dict[str, str] | None:
     # 表示のたびに読み直し、.env の書き換えを再起動なしで反映する
     try:
-        return parse_env((base / site.id / ".env").read_text())
+        return parse_env((base / site.dir_name / ".env").read_text())
     except FileNotFoundError:
         return None
 
@@ -67,7 +68,7 @@ def build_view(site: Site, env: dict[str, str] | None) -> SiteView:
 
 
 def load_sites(base: Path | None = None) -> list[SiteView]:
-    base = base or sites_dir()
+    base = base or sites_root()
     return [build_view(site, read_site_env(site, base)) for site in SITES]
 
 
@@ -75,5 +76,5 @@ def find_password(site_id: str, base: Path | None = None) -> str | None:
     site = next((site for site in SITES if site.id == site_id), None)
     if site is None:
         return None
-    env = read_site_env(site, base or sites_dir())
+    env = read_site_env(site, base or sites_root())
     return (env or {}).get("WP_ADMIN_PASSWORD") or None
