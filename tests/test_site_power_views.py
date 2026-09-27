@@ -13,7 +13,6 @@ def calls(monkeypatch, tmp_path):
     done: list[tuple[str, str]] = []
     monkeypatch.setattr(power, "LOCK_DIR", tmp_path / "locks")
     monkeypatch.setattr(power, "inspect", lambda runner, site: power.SiteState(power.RUNNING))
-    monkeypatch.setattr(views, "proxy_is_public", lambda: False)
     monkeypatch.setattr(views, "ACTIONS", {
         "start": (lambda runner, site, root: done.append(("start", site.id)), "起動"),
         "stop": (lambda runner, site, root: done.append(("stop", site.id)), "停止"),
@@ -43,13 +42,15 @@ def test_get_is_not_allowed(calls):
 
 
 @pytest.mark.django_db
-def test_public_proxy_forbids(calls, monkeypatch):
-    monkeypatch.setattr(views, "proxy_is_public", lambda: True)
-    response = post(Client(enforce_csrf_checks=True), "/sites/wp1/stop")
-    assert response.status_code == 403
-    assert calls == []
+def test_public_proxy_still_allows(calls, monkeypatch):
+    from wp_main import sites
+
+    monkeypatch.setattr(sites, "read_env", lambda directory: {"PROXY_BIND_ADDRESS": "0.0.0.0"})
     page = Client().get("/").content.decode()
-    assert "LAN に公開している" in page and "disabled" in page
+    assert "LAN に公開している" not in page and "disabled>" not in page
+    response = post(Client(enforce_csrf_checks=True), "/sites/wp1/stop")
+    assert response.status_code == 302
+    assert calls == [("stop", "wp1")]
 
 
 @pytest.mark.django_db
