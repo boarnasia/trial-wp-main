@@ -6,7 +6,7 @@ CLI で行った開発環境の操作（構築、移行、健全性の確認）�
 ## Requirements
 
 ### Requirement: 記録する操作と内容
-CLI は、`devenv install`・`devenv migrate`・`devenv check-health` の実行が終わったときに、その操作を 1 件の履歴として記録しなければならない (MUST)。ダッシュボードは、サイトの起動・停止が終わったときに、その操作を 1 件の履歴として記録しなければならない (MUST)。履歴には、コマンド名、指定されたオプション、開始日時、終了日時、終了コード、成否、結果の要約を含めなければならない (MUST)。サイトの起動・停止のコマンド名は `site-start`・`site-stop` とし、オプションにサイト ID を含めなければならない (MUST)。結果の要約は、`devenv migrate` では移行前と移行後の環境バージョン、`devenv check-health` では判定ごとの件数、失敗した場合はエラーの内容としなければならない (MUST)。`--dry-run` を指定した実行、何も適用しなかった `devenv migrate`（`--auto` で条件を満たさなかった場合を含む）、`devenv uninstall`、`devenv serve` は記録してはならない (MUST NOT)。履歴に `.env` の値（パスワード、トークンなど）を含めてはならない (MUST NOT)。
+CLI は、`devenv install`・`devenv migrate`・`devenv check-health` の実行が終わったときに、その操作を 1 件の履歴として記録しなければならない (MUST)。ダッシュボードは、サイトの起動・停止が終わったときに、その操作を 1 件の履歴として記録しなければならない (MUST)。`serve` は、開発セッションの開始時と終了時に行ったサイトの起動・停止を、サイトごとに 1 件の履歴として記録しなければならない (MUST)。履歴には、コマンド名、指定されたオプション、開始日時、終了日時、終了コード、成否、結果の要約を含めなければならない (MUST)。サイトの起動・停止のコマンド名は `site-start`・`site-stop` とし、オプションにサイト ID と操作の出どころ（ダッシュボードまたは `serve`）を含めなければならない (MUST)。結果の要約は、`devenv migrate` では移行前と移行後の環境バージョン、`devenv check-health` では判定ごとの件数、失敗した場合はエラーの内容としなければならない (MUST)。`--dry-run` を指定した実行、何も適用しなかった `devenv migrate`（`--auto` で条件を満たさなかった場合を含む）、`devenv uninstall`、`serve` の実行そのものは記録してはならない (MUST NOT)。履歴に `.env` の値（パスワード、トークンなど）を含めてはならない (MUST NOT)。
 
 #### Scenario: migrate を記録する
 - **WHEN** 環境バージョン 4 の環境で、migration 5 を適用する `devenv migrate` が成功する
@@ -18,7 +18,11 @@ CLI は、`devenv install`・`devenv migrate`・`devenv check-health` の実行�
 
 #### Scenario: サイトの停止を記録する
 - **WHEN** ダッシュボードから wp1 を停止する
-- **THEN** コマンド名 `site-stop`、オプションにサイト ID `wp1`、成功の履歴が 1 件記録される
+- **THEN** コマンド名 `site-stop`、オプションにサイト ID `wp1` と出どころのダッシュボード、成功の履歴が 1 件記録される
+
+#### Scenario: serve によるサイトの起動と停止を記録する
+- **WHEN** `serve --site=wp1` を実行し、wp1 が起動した後に Ctrl-C を押す
+- **THEN** 出どころが `serve` の `site-start` と `site-stop` の履歴が wp1 について 1 件ずつ記録され、`serve` の実行そのものの履歴は記録されない
 
 #### Scenario: 何もしなかった migrate は記録しない
 - **WHEN** 環境バージョンが最新の状態で `devenv migrate --auto` を実行する
@@ -32,8 +36,8 @@ CLI は、`devenv install`・`devenv migrate`・`devenv check-health` の実行�
 CLI は、履歴をダッシュボードを経由せずに DB へ直接書き込まなければならない (MUST)。ダッシュボードが起動していなくても記録できなければならない (MUST)。DB のスキーマが最新でない場合、CLI は記録の前に django:migration を適用しなければならない (MUST)。記録に失敗した場合、CLI は標準エラー出力に警告を表示し、コマンド本来の出力と終了コードを変えてはならない (MUST NOT)。
 
 #### Scenario: ダッシュボードが停止している
-- **WHEN** `devenv serve` を実行していない状態で `devenv check-health` を実行する
-- **THEN** 履歴が記録され、次に `devenv serve` でダッシュボードを開くと表示される
+- **WHEN** `serve` を実行していない状態で `devenv check-health` を実行する
+- **THEN** 履歴が記録され、次に `serve` でダッシュボードを開くと表示される
 
 #### Scenario: DB がまだない
 - **WHEN** `.local/db.sqlite3` がない状態で `devenv check-health` を実行する
@@ -48,10 +52,10 @@ CLI は、履歴をダッシュボードを経由せずに DB へ直接書き込
 - **THEN** 確認の結果と終了コードは記録できる場合と同じで、標準エラー出力に履歴を記録できなかった旨の警告が表示される
 
 ### Requirement: 保存先と保持件数
-履歴は、wp-main の `.local/db.sqlite3` に保存しなければならない (MUST)。ダッシュボードの複数のプロセスと CLI が同時に書き込んでも、記録が失われてはならない (MUST NOT)。履歴が 1000 件を超えた場合、古いものから削除しなければならない (MUST)。`devenv serve` を再起動しても、履歴は残らなければならない (MUST)。`devenv uninstall` は `.local/db.sqlite3` を削除しなければならない (MUST)。
+履歴は、wp-main の `.local/db.sqlite3` に保存しなければならない (MUST)。ダッシュボードの複数のプロセスと CLI が同時に書き込んでも、記録が失われてはならない (MUST NOT)。履歴が 1000 件を超えた場合、古いものから削除しなければならない (MUST)。`serve` を再起動しても、履歴は残らなければならない (MUST)。`devenv uninstall` は `.local/db.sqlite3` を削除しなければならない (MUST)。
 
 #### Scenario: 再起動しても残る
-- **WHEN** 履歴がある状態で `devenv serve` を止めて、もう一度実行する
+- **WHEN** 履歴がある状態で `serve` を止めて、もう一度実行する
 - **THEN** 同じ履歴が表示される
 
 #### Scenario: コンテナを作り直す
