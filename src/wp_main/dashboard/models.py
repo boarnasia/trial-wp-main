@@ -25,3 +25,37 @@ class Operation(models.Model):
         stale = cls.objects.values_list("id", flat=True)[keep:]
         deleted, _ = cls.objects.filter(id__in=list(stale)).delete()
         return deleted
+
+
+class SiteFetch(models.Model):
+    """サイトごとの、プラグイン情報の最後の取得の試行。"""
+
+    site_id = models.CharField(max_length=32, primary_key=True)
+    attempted_at = models.DateTimeField()
+    succeeded = models.BooleanField()
+    error = models.CharField(max_length=500, blank=True)
+    # 失敗しても前回の一覧を表示し続けるため、最後に成功したときの値を別に持つ
+    succeeded_at = models.DateTimeField(null=True)
+    wp_version = models.CharField(max_length=32, blank=True)
+
+
+class SitePlugin(models.Model):
+    site_id = models.CharField(max_length=32)
+    slug = models.CharField(max_length=200)
+    title = models.CharField(max_length=300)
+    version = models.CharField(max_length=64, blank=True)
+    status = models.CharField(max_length=16)
+
+    class Meta:
+        constraints = [models.UniqueConstraint(fields=["site_id", "slug"], name="unique_site_plugin")]
+
+
+class PluginInfo(models.Model):
+    """wordpress.org に載っている、プラグインの最新版の情報。"""
+
+    slug = models.CharField(max_length=200, primary_key=True)
+    found = models.BooleanField()
+    name = models.CharField(max_length=300, blank=True)
+    requires = models.CharField(max_length=32, blank=True)
+    tested = models.CharField(max_length=32, blank=True)
+    fetched_at = models.DateTimeField()

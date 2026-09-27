@@ -118,6 +118,16 @@ uv run manage.py serve logs -f --tail 50 dashboard wp1
 - パスワードはサイトの管理者パスワードと同じく伏せて表示し、表示・コピーのときだけ `/api/db/root/password`・`/api/db/user/password` から取得する
 - パスワードが `change-me` のままなら警告を出す
 
+### プラグイン横断リスト（WordPress メニュー）
+
+ヘッダーの「WordPress」から開く `/wordpress/plugins` で、全サイトのプラグインを 1 つの表で見比べられる。
+
+- 列は、プラグイン名（wordpress.org のページへのリンク）、サイトが使っている WordPress のメジャーごとの対応状況（OK / NG / 不明）、サイトごとの版（未導入は `-`、無効は「（無効）」、must-use は「MU」）
+- 対応状況は wordpress.org に載っている最新版の Requires at least・Tested up to から判定する。サイトの実際の版で対応外なら、そのセルに警告を出す
+- 「再取得」で取得する。サイトは起動せず、`docker compose run --rm -T <サイト ID>-cli wp plugin list` を使う（共有 MySQL だけあればよい）。一度も起動していないサイトは WordPress のファイルがないため取得できない
+- 結果は `.local/db.sqlite3` に保存し、ページの表示では Docker や wordpress.org に問い合わせない。失敗したサイトやプラグインは前回の値を残す。再取得は操作履歴に `plugins-refresh` として残る
+- プラグイン名とサイト名で絞り込める（URL の `?q=`・`?site=` に残る）
+
 ### 開発セッションの終了ボタン
 
 ヘッダーの右端の電源ボタンで、確認の後に開発セッションを終了できる（`uv run manage.py serve down` と同じ）。
