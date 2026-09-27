@@ -289,3 +289,19 @@ def test_request_end_kills_after_timeout(tmp_path, monkeypatch):
 
 def test_request_end_without_session(tmp_path):
     assert session.request_end(signal.SIGTERM, tmp_path / "serve.pid") is None
+
+
+def test_spawn_down_detaches_and_logs(tmp_path, monkeypatch):
+    import subprocess
+
+    started = {}
+
+    class FakePopen:
+        def __init__(self, command, **kwargs):
+            started.update(command=command, **kwargs)
+
+    monkeypatch.setattr(subprocess, "Popen", FakePopen)
+    session.spawn_down(tmp_path / "sites", log_dir=tmp_path / "logs")
+    assert started["command"][-4:] == ["serve", "down", "--root", str(tmp_path / "sites")]
+    assert started["start_new_session"] is True
+    assert (tmp_path / "logs" / "serve.log").exists()

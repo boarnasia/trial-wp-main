@@ -107,6 +107,23 @@ uv run manage.py serve logs -f --tail 50 dashboard wp1
 - `serve` を動かしていないときは、ダッシュボードの URL は 502 になる（各サイトには影響しない）
 - 値は表示のたびに `{root}/wp-wp1/.env` と `{root}/wp-wp2/.env` から読み込む。`.env` を書き換えれば、再起動せずに次の表示から反映される。ダッシュボードはサイトディレクトリに書き込まない
 - パスワードは伏せて表示し、表示ボタンかコピーボタンを押したときだけ取得する
+- 画面は上から、共有インフラ、サイト、操作履歴の順に並ぶ。ヘッダーには環境バージョン（`環境 v6`。古いときは migrate の案内）を出す
+- サイトの表には GitHub のリポジトリへのリンクがある。「サイト名で絞り込み」に入れた値は URL の `?site=` に残る
+
+### DB 接続情報
+
+共有インフラの欄に、ホストの DB クライアントから共有 MySQL につなぐための値（`127.0.0.1:<MYSQL_PORT>`、root と共用ユーザー `DB_USER` のパスワード）と、`wp-mysql` の状態を表示する。
+
+- 値は表示のたびに wp-main の `.env` から読み込む。`MYSQL_PORT` の既定は 3306、`DB_USER` の既定は `wordpress`
+- パスワードはサイトの管理者パスワードと同じく伏せて表示し、表示・コピーのときだけ `/api/db/root/password`・`/api/db/user/password` から取得する
+- パスワードが `change-me` のままなら警告を出す
+
+### 開発セッションの終了ボタン
+
+ヘッダーの右端の電源ボタンで、確認の後に開発セッションを終了できる（`uv run manage.py serve down` と同じ）。
+
+- `serve down` はダッシュボード自身も止めるため、切り離したプロセスで実行する。その出力は `.local/logs/serve.log` に残る
+- LAN に公開している間（`PROXY_BIND_ADDRESS` が `127.0.0.1` 以外）は、ボタンを出さず、要求も拒否する
 
 ### サイトの起動・停止
 
@@ -258,6 +275,19 @@ sudo は使わず、環境も変更しない。確認する項目は次のとお
 uv run pytest
 DJANGO_DEBUG=1 uv run manage.py runserver 127.0.0.1:8000   # 自動リロード付きでダッシュボードだけを起動（serve の代わり。サイトは起動しない）
 ```
+
+### ダッシュボードの見た目（bun・Vite・Tailwind CSS）
+
+CSS と JS のソースは `src/wp_main/dashboard/frontend/` にあり、bun・Vite・Tailwind CSS v4 でビルドして `src/wp_main/dashboard/static/dist/` に出力する。出力は git に入れているので、ダッシュボードを使うだけなら bun は要らない。見た目を変えるときだけ次を使う（bun の版は `.prototools` で固定している）。
+
+```bash
+bun install
+bun run dev        # ソースの変更を監視してビルドし直す（ブラウザは手で再読み込み）
+bun run build      # 出力を作り直す。変えたら static/dist/ もコミットする
+bun run test:e2e   # Bun.WebView による e2e テスト（一時ディレクトリの .env と DB で runserver を起動する）
+```
+
+ソースと出力がずれていると、bun がある環境では `tests/test_frontend_build.py` が失敗する。
 
 ダッシュボードと CLI は 1 つの Django プロジェクト（`manage.py`、`src/wp_main/settings.py`）にまとめている。ダッシュボードは app `wp_main.dashboard`（API は Django Ninja）、CLI は app `wp_main.cli` の management command。
 

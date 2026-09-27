@@ -1,18 +1,20 @@
 from django.contrib import messages
-from django.http import Http404, JsonResponse
+from django.http import Http404, HttpResponseForbidden, JsonResponse
 from django.shortcuts import redirect
 from django.template.response import TemplateResponse
 from django.utils import timezone
 from django.views.decorators.http import require_POST, require_safe
 from ninja import NinjaAPI
 
-from .. import operations, power
-from ..config import SITES
+from .. import operations, power, session, versioning
+from ..config import MYSQL_IMAGE, SITES
 from ..runner import DevEnvError, Runner
-from .data import find_password, load_sites, sites_root
+from ..sites import proxy_is_public
+from .data import find_db_password, find_password, load_db, load_sites, main_dir, sites_root
 from .models import Operation
 
 ACTIONS = {"start": (power.start, "起動"), "stop": (power.stop, "停止")}
+SHUTDOWN_FORBIDDEN = "プロキシを LAN に公開している（PROXY_BIND_ADDRESS）ため、ダッシュボードから開発セッションは終了できません"
 
 NO_STORE = {"Cache-Control": "no-store"}
 # FastAPI 版と同じく日本語をエスケープせずに返す
@@ -36,9 +38,17 @@ def index(request):
             "disabled": busy or state.state == power.UNKNOWN,
             "action": "start" if state.state == power.STOPPED else "stop",
         }))
+    installed, latest = versioning.installed_version(root), versioning.latest()
     context = {
         "rows": rows,
         "sites": [view for view, _ in rows],
+        "db": load_db(),
+        "mysql": power.inspect_mysql(runner),
+        "mysql_version": "MySQL " + MYSQL_IMAGE.rpartition(":")[2],
+        "env_version": installed,
+        "env_outdated": installed is not None and installed < latest,
+        "env_latest": latest,
+        "can_shutdown": not proxy_is_public(main_dir()),
         "operations": Operation.objects.all()[:RECENT_OPERATIONS],
     }
     return TemplateResponse(request, "index.html", context, headers=NO_STORE)
@@ -50,6 +60,22 @@ def password(request, site_id: str):
     if value is None:
         return JsonResponse({"detail": "パスワードが見つかりません"}, status=404, headers=NO_STORE, json_dumps_params=UTF8)
     return JsonResponse({"password": value}, headers=NO_STORE, json_dumps_params=UTF8)
+
+
+@api.get("/db/{account}/password")
+def db_password(request, account: str):
+    value = find_db_password(account)
+    if value is None:
+        return JsonResponse({"detail": "パスワードが見つかりません"}, status=404, headers=NO_STORE, json_dumps_params=UTF8)
+    return JsonResponse({"password": value}, headers=NO_STORE, json_dumps_params=UTF8)
+
+
+@require_POST
+def shutdown(request):
+    if proxy_is_public(main_dir()):
+        return HttpResponseForbidden(SHUTDOWN_FORBIDDEN)
+    session.spawn_down(sites_root())
+    return JsonResponse({"status": "stopping"}, status=202, json_dumps_params=UTF8)
 
 
 @require_POST

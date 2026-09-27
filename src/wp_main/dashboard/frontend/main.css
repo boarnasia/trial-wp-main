@@ -1,0 +1,116 @@
+@import "tailwindcss" source(none);
+
+/* リポジトリ全体を走査すると openspec などの文書の単語からも class が生まれるため、画面のファイルだけに絞る */
+@source "../templates";
+@source "./main.js";
+
+:root {
+  --wp-bg: #eef0f2;
+  --wp-surface: #ffffff;
+  --wp-surface-head: #f6f7f9;
+  --wp-text: #15191e;
+  --wp-ink: #2b323a;
+  --wp-muted: #56606b;
+  --wp-faint: #8a939d;
+  --wp-border: #d5dae0;
+  --wp-control: #c3cad2;
+  --wp-divider: #e6e9ed;
+  --wp-accent: #15478f;
+  --wp-accent-hover: #0d2f60;
+  --wp-on-accent: #ffffff;
+  --wp-ok: #1c6a37;
+  --wp-ok-bg: #e2f2e7;
+  --wp-ok-border: #9fd2ae;
+  --wp-warn: #8a4b00;
+  --wp-warn-bg: #fff4e0;
+  --wp-danger: #9a2a12;
+  --wp-danger-bg: #fbe3dc;
+  --wp-on-danger: #ffffff;
+  --wp-scrim: rgb(21 25 30 / 0.45);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --wp-bg: #111418;
+    --wp-surface: #1a1e23;
+    --wp-surface-head: #20252b;
+    --wp-text: #e6e9ed;
+    --wp-ink: #cdd3da;
+    --wp-muted: #9aa4af;
+    --wp-faint: #76808b;
+    --wp-border: #2f363e;
+    --wp-control: #3c444d;
+    --wp-divider: #272d34;
+    --wp-accent: #7fb0f5;
+    --wp-accent-hover: #a8c9f8;
+    --wp-on-accent: #0b1a2e;
+    --wp-ok: #7ee2b8;
+    --wp-ok-bg: #16352a;
+    --wp-ok-border: #2c5a47;
+    --wp-warn: #f3c37a;
+    --wp-warn-bg: #2e2413;
+    --wp-danger: #ff9b8f;
+    --wp-danger-bg: #3a1c17;
+    --wp-on-danger: #1a0906;
+    --wp-scrim: rgb(0 0 0 / 0.6);
+  }
+}
+
+@theme inline {
+  --font-sans: "IBM Plex Sans JP", "Hiragino Sans", sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+  --color-bg: var(--wp-bg);
+  --color-surface: var(--wp-surface);
+  --color-surface-head: var(--wp-surface-head);
+  --color-text: var(--wp-text);
+  --color-ink: var(--wp-ink);
+  --color-muted: var(--wp-muted);
+  --color-faint: var(--wp-faint);
+  --color-line: var(--wp-border);
+  --color-control: var(--wp-control);
+  --color-divider: var(--wp-divider);
+  --color-accent: var(--wp-accent);
+  --color-accent-hover: var(--wp-accent-hover);
+  --color-on-accent: var(--wp-on-accent);
+  --color-ok: var(--wp-ok);
+  --color-ok-bg: var(--wp-ok-bg);
+  --color-ok-line: var(--wp-ok-border);
+  --color-warn: var(--wp-warn);
+  --color-warn-bg: var(--wp-warn-bg);
+  --color-danger: var(--wp-danger);
+  --color-danger-bg: var(--wp-danger-bg);
+  --color-on-danger: var(--wp-on-danger);
+  --color-scrim: var(--wp-scrim);
+}
+
+@layer base {
+  body {
+    @apply bg-bg font-sans text-text antialiased;
+  }
+
+  a {
+    @apply text-accent hover:text-accent-hover;
+  }
+
+  button {
+    @apply cursor-pointer disabled:cursor-not-allowed disabled:opacity-40;
+  }
+
+  dialog::backdrop {
+    background: var(--wp-scrim);
+  }
+}
+
+@layer components {
+  .icon-button {
+    @apply inline-flex size-[30px] shrink-0 items-center justify-center rounded border border-line bg-transparent text-ink hover:bg-surface-head;
+  }
+
+  .text-button {
+    @apply inline-flex h-[30px] items-center rounded border border-control bg-surface px-3 text-xs text-text hover:bg-surface-head;
+  }
+
+  .card {
+    @apply overflow-hidden rounded-lg border border-line bg-surface;
+  }
+}
