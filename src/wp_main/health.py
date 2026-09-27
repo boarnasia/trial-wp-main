@@ -7,8 +7,8 @@ from collections.abc import Callable
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
-from .config import CADDY_ROOT_CERT, CADDY_SERVICE, DASHBOARD_DOMAIN, MAIN_DIR, MYSQL_CONTAINER, NETWORK, SITES, Site
-from . import versioning
+from .config import CADDY_CONTAINER, CADDY_ROOT_CERT, CADDY_SERVICE, DASHBOARD_DOMAIN, MAIN_DIR, MYSQL_CONTAINER, NETWORK, SITES, Site
+from . import session, versioning
 from .docker import compose
 from .runner import Runner
 from .sites import SECRET_PLACEHOLDER, dashboard_port, read_env
@@ -27,8 +27,7 @@ GROUPS = {
 CURL = "/usr/bin/curl"
 CURL_TIMEOUT = "5"
 CURL_SSL_ERROR = 60
-CADDY_CONTAINER = "wp-caddy"
-OUTSIDE_SESSION = "開発セッションの外です（uv run manage.py serve で始まります）"
+OUTSIDE_SESSION = "開発セッションの外です（uv run manage.py serve up で始まります）"
 INSTALL_HINT = "uv run manage.py devenv install を実行してください"
 
 
@@ -143,8 +142,15 @@ class HealthContext:
     main_dir: Path = MAIN_DIR
     resolver: Callable[[str], list[str]] = resolve_ipv4
     probe: Callable[[int], str | None] = probe_dashboard
+    session_check: Callable[[], bool] = session.is_running
+    _in_session: bool | None = field(default=None, init=False)
     _containers: dict | None = field(default=None, init=False)
     _responses: dict[str, HttpResponse] = field(default_factory=dict, init=False)
+
+    def in_session(self) -> bool:
+        if self._in_session is None:
+            self._in_session = self.session_check()
+        return self._in_session
 
     def cmd(self, args: list[str], cwd: Path | None = None):
         return self.runner.run(args, cwd=cwd, check=False, mutate=False)
@@ -264,10 +270,12 @@ def host_checks(ctx: HealthContext) -> list[Check]:
 
     def dashboard() -> Result:
         port = dashboard_port(ctx.main_dir)
+        # ダッシュボードは開発セッションの間だけ動くものなので、セッションの外で止まっていても故障とはみなさない
+        if not ctx.in_session():
+            return Result(SKIP, OUTSIDE_SESSION)
         problem = ctx.probe(port)
         if problem:
-            # ダッシュボードは開発セッションの間だけ動くものなので、止まっていても環境の故障とはみなさない
-            return Result(SKIP, f"127.0.0.1:{port} で応答しません（{problem}）。{OUTSIDE_SESSION}")
+            return Result(FAIL, f"127.0.0.1:{port} で応答しません（{problem}）", "uv run manage.py serve logs dashboard を確認してください")
         return Result(OK, f"127.0.0.1:{port}")
 
     checks.append(Check("host.dashboard", "host", "ダッシュボードのプロセス", dashboard))
@@ -296,7 +304,7 @@ def ca_check(ctx: HealthContext) -> Check:
     return Check("host.ca", "host", "Caddy ローカル CA の信頼登録", run, (f"container.{CADDY_CONTAINER}",))
 
 
-INFRA_HINT = "uv run manage.py serve で起動するか、wp-main で docker compose up -d caddy mysql を実行してください"
+INFRA_HINT = "uv run manage.py serve down の後に uv run manage.py serve up で始め直してください"
 
 
 def container_checks(ctx: HealthContext) -> list[Check]:
@@ -304,6 +312,9 @@ def container_checks(ctx: HealthContext) -> list[Check]:
     for name in (CADDY_CONTAINER, MYSQL_CONTAINER):
 
         def run(name=name) -> Result:
+            # 共有インフラも開発セッションの間だけ動くものなので、セッションの外で止まっていても故障とはみなさない
+            if not ctx.in_session():
+                return Result(SKIP, OUTSIDE_SESSION)
             info = ctx.containers().get(name)
             if info is None:
                 return Result(FAIL, "コンテナがありません", INFRA_HINT)
@@ -327,7 +338,7 @@ def site_checks(ctx: HealthContext) -> list[Check]:
             state = info.get("State", "") if info else ""
             if state != "running":
                 # サイトは開発セッションの間だけ動くものなので、止まっていても故障とはみなさない
-                return Result(SKIP, f"停止中（uv run manage.py serve --site={site.id} で起動します）")
+                return Result(SKIP, f"停止中（uv run manage.py serve up --site={site.id} で起動します）")
             return Result(OK, state)
 
         checks.append(Check(

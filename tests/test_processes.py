@@ -49,22 +49,38 @@ def test_port_in_use():
     assert not processes.port_in_use(port)
 
 
-def test_old_devenv_serve_points_to_serve(monkeypatch, manage):
+def test_old_devenv_serve_points_to_serve_up(monkeypatch, manage):
     monkeypatch.setattr(processes, "supervise", lambda *args, **kwargs: pytest.fail("起動してはならない"))
     result = manage("devenv", "serve")
     assert result.exit_code == 1
-    assert "uv run manage.py serve" in result.stderr
+    assert "uv run manage.py serve up" in result.stderr
 
 
-def test_serve_prepares_db_then_supervises(monkeypatch, manage):
-    from wp_main import session
+def test_output_goes_to_log_files(tmp_path):
+    lines: list[str] = []
+    stop = threading.Event()
+    printer = "import time; print('hello', flush=True); time.sleep(60)"
+    threading.Timer(1.0, stop.set).start()
+    assert supervise([python("dashboard", printer)], stop=stop, echo=lines.append, log_dir=tmp_path) == 0
+    assert (tmp_path / "dashboard.log").read_text() == "hello\n"
+    assert lines == ["dashboard | hello"]
 
-    calls = []
-    monkeypatch.setattr(processes, "port_in_use", lambda port: False)
-    monkeypatch.setattr("wp_main.cli.management.commands.serve.call_command", lambda *a, **k: calls.append("migrate"))
-    monkeypatch.setattr(session, "begin", lambda runner, sites, root: calls.append("begin"))
-    monkeypatch.setattr(session, "end", lambda runner, root: calls.append("end"))
-    monkeypatch.setattr(processes, "supervise", lambda procs, **kwargs: calls.append([p.name for p in procs]) or 0)
-    result = manage("serve")
-    assert result.exit_code == 0
-    assert calls == ["migrate", "begin", ["dashboard"], "end"]
+
+def test_on_ready_is_called_once():
+    ready_calls: list[bool] = []
+    stop = threading.Event()
+    threading.Timer(1.0, stop.set).start()
+    code = supervise(
+        [python("dashboard", "import time; time.sleep(60)")], stop=stop, echo=lambda line: None,
+        ready=lambda: True, on_ready=lambda: ready_calls.append(True),
+    )
+    assert code == 0 and ready_calls == [True]
+
+
+def test_not_ready_in_time_fails(capsys):
+    code = supervise(
+        [python("dashboard", "import time; time.sleep(60)")], echo=lambda line: None,
+        ready=lambda: False, on_ready=lambda: pytest.fail("呼ばれてはならない"), ready_timeout=0.5,
+    )
+    assert code == 1
+    assert "応答しませんでした" in capsys.readouterr().err

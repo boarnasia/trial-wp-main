@@ -150,8 +150,8 @@ def check_health(
 # 以前の手順やメモから呼ばれたときに、新しいコマンドへ案内する
 @app.command("serve", hidden=True)
 def serve(root: RootOption = None) -> None:
-    """（廃止）uv run manage.py serve を使う。"""
-    typer.secho("devenv serve は廃止しました。uv run manage.py serve --site=wp1,wp2 を使ってください", fg=typer.colors.RED, err=True)
+    """（廃止）uv run manage.py serve up を使う。"""
+    typer.secho("devenv serve は廃止しました。uv run manage.py serve up --site=wp1,wp2 を使ってください", fg=typer.colors.RED, err=True)
     raise typer.Exit(1)
 
 

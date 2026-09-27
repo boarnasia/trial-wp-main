@@ -5,7 +5,7 @@ from pathlib import Path
 import typer
 from django.core.management import call_command
 
-from .. import health, hosts, power, versioning
+from .. import hosts, power, session, versioning
 from ..config import (
     CA_CERT_FILE,
     CADDY_IMAGE,
@@ -28,7 +28,7 @@ from ..config import (
 )
 from ..docker import check_ports, compose, ensure_network, wait_for
 from ..runner import DevEnvError, Runner
-from ..sites import dashboard_port, ensure_env, ensure_site_repo, read_env
+from ..sites import ensure_env, ensure_site_repo, read_env
 from ..trust import SYSTEM_KEYCHAIN, load_state, trust_caddy_ca, untrust
 
 
@@ -64,7 +64,7 @@ def install_wordpress(runner: Runner, site: Site, root: Path) -> None:
     )
 
 
-SERVE_COMMAND = "uv run manage.py serve --site=all"
+SERVE_COMMAND = "uv run manage.py serve up --site=all"
 
 
 def prepare_db(runner: Runner) -> None:
@@ -81,11 +81,8 @@ def db_files() -> list[Path]:
     return [db, db.with_name("db.sqlite3-wal"), db.with_name("db.sqlite3-shm")]
 
 
-def dashboard_running() -> bool:
-    try:
-        return health.probe_dashboard(dashboard_port(MAIN_DIR)) is None
-    except DevEnvError:
-        return False
+def session_running() -> bool:
+    return session.is_running()
 
 
 def hosts_domains() -> list[str]:
@@ -166,31 +163,37 @@ def install(runner: Runner, root: Path, *, start: bool, trust: bool) -> None:
         return
 
     step("共有インフラ（プロキシ・MySQL）を起動")
+    # 共有インフラは開発セッションの外では動かさないので、セッション中でなければ最後に止める
+    in_session = session_running()
     check_ports(runner, PROXY_PORTS)
     power.start_infra(runner, MAIN_DIR)
+    try:
+        if runner.dry_run:
+            typer.echo("[dry-run] WordPress の初期セットアップと CA 登録は省略")
+            return
 
-    if runner.dry_run:
-        typer.echo("[dry-run] WordPress の初期セットアップと CA 登録は省略")
-        return
+        step("WordPress の初期セットアップ")
+        for site in SITES:
+            # サイトは開発セッションの外では動かさないので、セットアップの間だけ起動する
+            power.start(runner, site, root, MAIN_DIR)
+            try:
+                install_wordpress(runner, site, root)
+            finally:
+                power.stop(runner, site, root, MAIN_DIR)
 
-    step("WordPress の初期セットアップ")
-    for site in SITES:
-        # サイトは開発セッションの外では動かさないので、セットアップの間だけ起動する
-        power.start(runner, site, root, MAIN_DIR)
-        try:
-            install_wordpress(runner, site, root)
-        finally:
-            power.stop(runner, site, root, MAIN_DIR)
-
-    step("Caddy ローカル CA を System キーチェーンに登録（sudo）")
-    if trust:
-        typer.echo(f"  SHA-1: {trust_caddy_ca(runner)}")
-    else:
-        typer.echo(
-            "  --skip-trust のため省略しました。手動で登録する場合:\n"
-            f"    docker compose cp caddy:/data/caddy/pki/authorities/local/root.crt {CA_CERT_FILE}\n"
-            f"    sudo security add-trusted-cert -d -r trustRoot -k {SYSTEM_KEYCHAIN} {CA_CERT_FILE}"
-        )
+        step("Caddy ローカル CA を System キーチェーンに登録（sudo）")
+        if trust:
+            typer.echo(f"  SHA-1: {trust_caddy_ca(runner)}")
+        else:
+            typer.echo(
+                "  --skip-trust のため省略しました。手動で登録する場合:\n"
+                f"    docker compose cp caddy:/data/caddy/pki/authorities/local/root.crt {CA_CERT_FILE}\n"
+                f"    sudo security add-trusted-cert -d -r trustRoot -k {SYSTEM_KEYCHAIN} {CA_CERT_FILE}"
+            )
+    finally:
+        if not in_session:
+            step("共有インフラを停止（開発セッションで起動します）")
+            power.stop_infra(runner, MAIN_DIR)
 
     finish_version(runner, root, fresh)
     typer.secho("\n完了しました。", fg=typer.colors.GREEN, bold=True)
@@ -231,8 +234,8 @@ def uninstall(runner: Runner, root: Path, *, assume_yes: bool) -> None:
         typer.echo(f"  - System キーチェーンの Caddy ローカル CA ({state['ca_sha1']})")
 
     typer.echo(f"  - ダッシュボードの DB（{db_files()[0]}）")
-    if dashboard_running():
-        typer.secho("警告: uv run manage.py serve が動いています。先に Ctrl-C で止めてください。", fg=typer.colors.YELLOW)
+    if session_running():
+        typer.secho("警告: 開発セッションが動いています。先に uv run manage.py serve down で止めてください。", fg=typer.colors.YELLOW)
 
     for path in site_dirs:
         for problem in unsaved_changes(runner, path):

@@ -8,9 +8,12 @@ STATE_FILE = LOCAL_DIR / "dev-env-state.json"
 CA_CERT_FILE = LOCAL_DIR / "caddy-root.crt"
 DB_FILE = LOCAL_DIR / "db.sqlite3"
 LOCK_DIR = LOCAL_DIR / "locks"
+LOG_DIR = LOCAL_DIR / "logs"
+SESSION_FILE = LOCAL_DIR / "serve.pid"
 
 NETWORK = "wp-global-net"
 CADDY_SERVICE = "caddy"
+CADDY_CONTAINER = "wp-caddy"
 CADDY_IMAGE = "caddy:2"
 CADDY_ROOT_CERT = "/data/caddy/pki/authorities/local/root.crt"
 CADDY_VOLUMES = ("wp-caddy-data", "wp-caddy-config")

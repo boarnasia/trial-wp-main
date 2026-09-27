@@ -6,7 +6,7 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 
-from .config import CADDY_SERVICE, LOCK_DIR, MAIN_DIR, MYSQL_CONTAINER, MYSQL_SERVICE, SITES, Site
+from .config import CADDY_CONTAINER, CADDY_SERVICE, LOCK_DIR, MAIN_DIR, MYSQL_CONTAINER, MYSQL_SERVICE, SITES, Site
 from .docker import compose
 from .runner import DevEnvError, Runner
 from .sites import read_env
@@ -73,6 +73,15 @@ def start_infra(runner: Runner, main_dir: Path = MAIN_DIR) -> None:
         runner, "up", "-d", "--wait", "--wait-timeout", str(START_TIMEOUT_SECONDS), CADDY_SERVICE, MYSQL_SERVICE,
         cwd=main_dir, capture=True,
     )
+
+
+def stop_infra(runner: Runner, main_dir: Path = MAIN_DIR) -> None:
+    # -v を付けないので、共有 MySQL とサイトのボリュームは残る
+    compose(runner, "down", "--remove-orphans", cwd=main_dir, capture=True)
+
+
+def infra_exists(runner: Runner) -> bool:
+    return bool(inspect_containers(runner, [CADDY_CONTAINER, MYSQL_CONTAINER]))
 
 
 def schema_name(site: Site, root: Path) -> str:
