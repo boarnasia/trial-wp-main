@@ -1,81 +1,73 @@
-import json
-import urllib.error
+import os
+import subprocess
+import sys
 from datetime import datetime, timezone
+from pathlib import Path
 
 import pytest
 
 from wp_main import operations
-from wp_main.operations import send as real_send
+from wp_main.dashboard.models import Operation
+from wp_main.operations import write as real_write
 
 START = datetime(2026, 9, 27, 1, 0, tzinfo=timezone.utc)
 END = datetime(2026, 9, 27, 1, 1, tzinfo=timezone.utc)
 
 
-def call(sender, **values):
-    fields = {"exit_code": 0, "succeeded": True, "summary": "3 → 4"} | values
-    return operations.record("migrate", {"auto": True, "root": None}, START, END, sender=sender, **fields)
+def call(writer, **values):
+    fields = {"exit_code": 0, "succeeded": True, "summary": "4 → 5"} | values
+    return operations.record("migrate", {"auto": True, "root": Path("/work")}, START, END, writer=writer, **fields)
 
 
-def test_record_sends_payload():
-    sent = []
-    assert call(sent.append)
-    assert sent == [{
-        "command": "migrate", "options": {"auto": True, "root": None},
-        "started_at": START.isoformat(), "finished_at": END.isoformat(),
-        "exit_code": 0, "succeeded": True, "summary": "3 → 4",
+def test_record_builds_payload():
+    written = []
+    assert call(written.append)
+    assert written == [{
+        "command": "migrate", "options": {"auto": True, "root": "/work"},
+        "started_at": START, "finished_at": END,
+        "exit_code": 0, "succeeded": True, "summary": "4 → 5",
     }]
 
 
 def test_record_failure_only_warns(capsys):
-    def down(payload):
-        raise operations.ApiError("Connection refused")
+    def broken(payload):
+        raise OSError("attempt to write a readonly database")
 
-    assert call(down) is False
+    assert call(broken) is False
     captured = capsys.readouterr()
     assert captured.out == ""
-    assert "操作履歴を記録できませんでした: Connection refused" in captured.err
+    assert "操作履歴を記録できませんでした: attempt to write a readonly database" in captured.err
 
 
-def test_missing_token_is_rejected(tmp_path):
-    (tmp_path / ".env").write_text("DASHBOARD_API_TOKEN=change-me\n")
-    with pytest.raises(operations.ApiError, match="DASHBOARD_API_TOKEN"):
-        operations.api_token(tmp_path)
+@pytest.mark.django_db(transaction=True)
+def test_record_writes_to_db():
+    assert call(real_write, summary="x" * 600)
+    [operation] = Operation.objects.all()
+    assert operation.command == "migrate" and operation.options == {"auto": True, "root": "/work"}
+    assert operation.finished_at == END and len(operation.summary) == 500
 
 
-def test_send_posts_with_token(monkeypatch, tmp_path):
-    captured = {}
-
-    class Response:
-        status = 201
-
-        def __enter__(self):
-            return self
-
-        def __exit__(self, *exc):
-            return False
-
-        def read(self):
-            return b"{}"
-
-    def fake_urlopen(request, timeout, context):
-        captured.update(url=request.full_url, auth=request.get_header("Authorization"), body=json.loads(request.data), timeout=timeout)
-        return Response()
-
-    monkeypatch.setattr(operations, "api_token", lambda: "secret")
-    monkeypatch.setattr(operations, "ca_file", lambda runner: tmp_path / "ca.crt")
-    monkeypatch.setattr(operations.ssl, "create_default_context", lambda cafile: None)
-    monkeypatch.setattr(operations.urllib.request, "urlopen", fake_urlopen)
-    real_send({"command": "migrate"})
-    assert captured == {"url": operations.API_URL, "auth": "Bearer secret", "body": {"command": "migrate"}, "timeout": 3}
+@pytest.mark.django_db(transaction=True)
+def test_record_prunes(monkeypatch):
+    monkeypatch.setattr("wp_main.dashboard.models.MAX_OPERATIONS", 2)
+    for _ in range(3):
+        call(real_write)
+    assert Operation.objects.count() == 2
 
 
-def test_send_unreachable_raises(monkeypatch, tmp_path):
-    def refused(request, timeout, context):
-        raise urllib.error.URLError("Connection refused")
-
-    monkeypatch.setattr(operations, "api_token", lambda: "secret")
-    monkeypatch.setattr(operations, "ca_file", lambda runner: tmp_path / "ca.crt")
-    monkeypatch.setattr(operations.ssl, "create_default_context", lambda cafile: None)
-    monkeypatch.setattr(operations.urllib.request, "urlopen", refused)
-    with pytest.raises(operations.ApiError, match="Connection refused"):
-        real_send({})
+def test_write_creates_missing_db(tmp_path):
+    # 実際の .local を触らないよう、別のプロセスで DB の場所を差し替えて確かめる
+    db = tmp_path / "db.sqlite3"
+    script = (
+        "import django; django.setup();"
+        "from datetime import datetime, timezone; from wp_main.operations import write;"
+        "from wp_main.dashboard.models import Operation;"
+        "now = datetime.now(timezone.utc);"
+        "write({'command': 'check-health', 'options': {}, 'started_at': now, 'finished_at': now,"
+        " 'exit_code': 0, 'succeeded': True, 'summary': 'OK 1'});"
+        "print(Operation.objects.count())"
+    )
+    env = os.environ | {"DJANGO_SETTINGS_MODULE": "wp_main.settings", "DJANGO_DB_PATH": str(db)}
+    result = subprocess.run([sys.executable, "-c", script], env=env, capture_output=True, text=True)
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.strip() == "1" and db.exists()

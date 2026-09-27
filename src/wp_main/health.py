@@ -1,14 +1,16 @@
 import json
 import re
 import socket
+import urllib.error
+import urllib.request
 from collections.abc import Callable
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
 from .config import CADDY_ROOT_CERT, CADDY_SERVICE, DASHBOARD_DOMAIN, MAIN_DIR, NETWORK, SITES, Site
-from . import operations, versioning
+from . import versioning
 from .runner import Runner
-from .sites import SECRET_PLACEHOLDER, read_env
+from .sites import SECRET_PLACEHOLDER, dashboard_port, read_env
 from .trust import SYSTEM_KEYCHAIN, pem_sha1
 
 OK, WARN, FAIL, SKIP = "OK", "WARN", "FAIL", "SKIP"
@@ -24,8 +26,7 @@ CURL = "/usr/bin/curl"
 CURL_TIMEOUT = "5"
 CURL_SSL_ERROR = 60
 CADDY_CONTAINER = "wp-caddy"
-DASHBOARD_CONTAINER = "wp-dashboard"
-DASHBOARD_SERVICE = "dashboard"
+SERVE_HINT = "別の端末で uv run manage.py devenv serve を実行してください"
 INSTALL_HINT = "uv run manage.py devenv install を実行してください"
 
 
@@ -110,6 +111,17 @@ class HttpResponse:
     verified: bool
 
 
+def probe_dashboard(port: int) -> str | None:
+    """ホストのダッシュボードが応答すれば None、しなければ理由を返す。"""
+    try:
+        with urllib.request.urlopen(f"http://127.0.0.1:{port}/healthz", timeout=2) as response:
+            return None if response.status == 200 else f"HTTP {response.status}"
+    except urllib.error.HTTPError as error:
+        return f"HTTP {error.code}"
+    except (urllib.error.URLError, OSError) as error:
+        return str(getattr(error, "reason", error))
+
+
 def expected_major(site: Site, env: dict[str, str]) -> str | None:
     image = env.get("WP_IMAGE", site.image)
     match = re.search(r":(\d+)", image)
@@ -122,7 +134,7 @@ class HealthContext:
     root: Path
     main_dir: Path = MAIN_DIR
     resolver: Callable[[str], list[str]] = resolve_ipv4
-    api: Callable[..., tuple[int, object]] = operations.call_api
+    probe: Callable[[int], str | None] = probe_dashboard
     _containers: dict | None = field(default=None, init=False)
     _responses: dict[str, HttpResponse] = field(default_factory=dict, init=False)
 
@@ -239,6 +251,16 @@ def host_checks(ctx: HealthContext) -> list[Check]:
         return Result(FAIL, f"{NETWORK} がありません", f"docker network create {NETWORK} または {INSTALL_HINT}")
 
     checks.append(Check("host.network", "host", f"ネットワーク {NETWORK}", network))
+
+    def dashboard() -> Result:
+        port = dashboard_port(ctx.main_dir)
+        problem = ctx.probe(port)
+        if problem:
+            # ダッシュボードは必要なときだけ動かすものなので、止まっていても環境の故障とはみなさない
+            return Result(WARN, f"127.0.0.1:{port} で応答しません（{problem}）", SERVE_HINT)
+        return Result(OK, f"127.0.0.1:{port}")
+
+    checks.append(Check("host.dashboard", "host", "ダッシュボードのプロセス", dashboard))
     return checks
 
 
@@ -269,7 +291,6 @@ def container_checks(ctx: HealthContext) -> list[Check]:
     names = [
         CADDY_CONTAINER,
         *(name for site in SITES for name in (f"{site.id}-wordpress", f"{site.id}-db")),
-        DASHBOARD_CONTAINER,
     ]
     checks = []
     for name in names:
@@ -281,7 +302,7 @@ def container_checks(ctx: HealthContext) -> list[Check]:
             state, health = info.get("State", ""), info.get("Health", "")
             if state != "running":
                 return Result(FAIL, f"状態: {state}", "wp-main で docker compose up -d を実行してください")
-            if (name.endswith("-db") or name == DASHBOARD_CONTAINER) and health != "healthy":
+            if name.endswith("-db") and health != "healthy":
                 return Result(FAIL, f"ヘルスチェック: {health or '未設定'}", f"docker compose logs {name} を確認してください")
             return Result(OK, f"{state}{f' ({health})' if health else ''}")
 
@@ -354,11 +375,15 @@ def dashboard_http_checks(ctx: HealthContext) -> list[Check]:
     base_requires = ("host.dns.dashboard", f"container.{CADDY_CONTAINER}")
 
     def https() -> Result:
+        # host.dashboard は WARN どまりで後続を止めないため、ここで応答の有無を見て SKIP にする
+        if ctx.probe(dashboard_port(ctx.main_dir)):
+            return Result(SKIP, "ダッシュボードのプロセスが応答していません")
         response = ctx.fetch(https_url)
         if isinstance(response, str):
             return Result(FAIL, f"接続できません: {response}", "docker compose logs caddy を確認してください")
         if response.code != 200:
-            return Result(FAIL, f"HTTP {response.code}", f"docker compose logs {DASHBOARD_CONTAINER} を確認してください")
+            # ホストのプロセスは応答しているので、502 なら Caddy からホストへの転送を疑う
+            return Result(FAIL, f"HTTP {response.code}", "docker compose logs caddy を確認してください")
         if not response.verified:
             return Result(
                 WARN,
@@ -375,24 +400,10 @@ def dashboard_http_checks(ctx: HealthContext) -> list[Check]:
             return Result(OK, f"HTTP {response.code} → {response.redirect}")
         return Result(FAIL, f"HTTP {response.code} → {response.redirect or '(なし)'}", "Caddyfile を確認してください")
 
-    def api() -> Result:
-        # 記録は best effort なので、使えなくても FAIL にはしない
-        rebuild = f"docker compose up -d --build {DASHBOARD_SERVICE} で .env の変更をコンテナに反映してください"
-        try:
-            status, _ = ctx.api("GET", "?limit=1", runner=ctx.runner)
-        except operations.ApiError as error:
-            return Result(WARN, f"接続できません: {error}", rebuild)
-        if status == 401:
-            return Result(WARN, f"{operations.TOKEN_KEY} が一致しません", rebuild)
-        if status != 200:
-            return Result(WARN, f"HTTP {status}", f"docker compose logs {DASHBOARD_CONTAINER} を確認してください")
-        return Result(OK, "操作履歴を記録できます")
-
     return [
         Check("http.https.dashboard", "http", f"HTTPS {DASHBOARD_DOMAIN}", https,
-              (*base_requires, f"container.{DASHBOARD_CONTAINER}")),
+              (*base_requires, "host.dashboard")),
         Check("http.redirect.dashboard", "http", f"HTTP → HTTPS {DASHBOARD_DOMAIN}", redirect, base_requires),
-        Check("http.api.dashboard", "http", "操作履歴 API", api, ("http.https.dashboard",)),
     ]
 
 

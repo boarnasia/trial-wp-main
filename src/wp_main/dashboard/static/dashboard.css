@@ -68,7 +68,7 @@ a:hover { color: var(--accent-hover); }
 
 .row {
   display: grid;
-  grid-template-columns: 90px 1.6fr 1fr 1.8fr 1fr;
+  grid-template-columns: 90px 120px 1.6fr 1fr 1.8fr 1fr;
   gap: 8px 16px;
   align-items: center;
   padding: 18px 24px;
@@ -93,7 +93,7 @@ a:hover { color: var(--accent-hover); }
 .grow { flex-grow: 1; overflow-wrap: anywhere; }
 .unset { font-size: 13px; color: var(--muted); }
 
-.span-rest { grid-column: 2 / -1; }
+.span-rest { grid-column: 3 / -1; }
 .span-all { grid-column: 1 / -1; }
 .problem {
   font-size: 13px;
@@ -143,6 +143,30 @@ a:hover { color: var(--accent-hover); }
 .result { font-size: 12px; font-weight: 500; padding: 2px 8px; border-radius: 6px; }
 .result.ok { color: var(--muted); background: var(--surface-head); }
 .result.fail { color: var(--warn); background: var(--warn-bg); }
+
+.power { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; }
+.power form { margin: 0; }
+.state { font-size: 12px; font-weight: 500; padding: 2px 8px; border-radius: 6px; color: var(--muted); background: var(--surface-head); }
+.state.running { color: var(--accent); }
+.state.partial, .state.unknown { color: var(--warn); background: var(--warn-bg); }
+.power-button {
+  min-height: 32px;
+  padding: 0 12px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+.power-button:hover:not(:disabled) { border-color: var(--muted); }
+.power-button:disabled { opacity: 0.4; cursor: not-allowed; }
+.power-button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+.messages { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.message { font-size: 13px; border-radius: 8px; padding: 10px 12px; color: var(--text); background: var(--surface-head); border: 1px solid var(--border); }
+.message.error, .message.warning { color: var(--warn); background: var(--warn-bg); border-color: transparent; }
 
 .toast { min-height: 20px; font-size: 13px; color: var(--muted); }
 

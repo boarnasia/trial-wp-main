@@ -3,15 +3,17 @@ from collections.abc import Callable
 from pathlib import Path
 
 import typer
+from django.core.management import call_command
 
-from .. import hosts, versioning
+from .. import health, hosts, versioning
 from ..config import (
     CA_CERT_FILE,
     CADDY_IMAGE,
     CADDY_VOLUMES,
     DASHBOARD_DOMAIN,
-    DASHBOARD_IMAGE,
-    DASHBOARD_VOLUME,
+    LEGACY_DASHBOARD_CONTAINER,
+    LEGACY_DASHBOARD_IMAGE,
+    LEGACY_DASHBOARD_VOLUME,
     LOCAL_DIR,
     MAIN_DIR,
     MYSQL_IMAGE,
@@ -24,7 +26,7 @@ from ..config import (
 )
 from ..docker import check_ports, compose, ensure_network, wait_for
 from ..runner import DevEnvError, Runner
-from ..sites import ensure_env, ensure_site_repo, read_env
+from ..sites import dashboard_port, ensure_env, ensure_site_repo, read_env
 from ..trust import SYSTEM_KEYCHAIN, load_state, trust_caddy_ca, untrust
 
 
@@ -58,6 +60,30 @@ def install_wordpress(runner: Runner, site: Site, root: Path) -> None:
         f"--admin_email={env.get('WP_ADMIN_EMAIL', 'admin@example.com')}",
         "--skip-email",
     )
+
+
+SERVE_COMMAND = "uv run manage.py devenv serve"
+
+
+def prepare_db(runner: Runner) -> None:
+    if runner.dry_run:
+        typer.echo("[dry-run] manage.py migrate")
+        return
+    call_command("migrate", verbosity=0, interactive=False)
+    typer.echo("  最新のスキーマです")
+
+
+def db_files() -> list[Path]:
+    # テストで MAIN_DIR を差し替えたときに、実際の DB を消さないよう呼び出し時に求める
+    db = MAIN_DIR / ".local" / "db.sqlite3"
+    return [db, db.with_name("db.sqlite3-wal"), db.with_name("db.sqlite3-shm")]
+
+
+def dashboard_running() -> bool:
+    try:
+        return health.probe_dashboard(dashboard_port(MAIN_DIR)) is None
+    except DevEnvError:
+        return False
 
 
 def hosts_domains() -> list[str]:
@@ -118,6 +144,9 @@ def install(runner: Runner, root: Path, *, start: bool, trust: bool) -> None:
         created = ensure_env(runner, directory)
         typer.echo(f"  {directory / '.env'}: {'生成' if created else '既存のため維持'}")
 
+    step("ダッシュボードの DB（django:migration）")
+    prepare_db(runner)
+
     step(f"Docker ネットワーク {NETWORK}")
     typer.echo("  作成" if ensure_network(runner) else "  既存")
 
@@ -131,11 +160,12 @@ def install(runner: Runner, root: Path, *, start: bool, trust: bool) -> None:
     if not start:
         finish_version(runner, root, fresh)
         typer.echo("--no-start のため起動と CA 登録を省略しました。起動: docker compose up -d")
+        typer.echo(f"ダッシュボードは別の端末で起動してください: {SERVE_COMMAND}")
         return
 
     step("コンテナを起動")
     check_ports(runner, PROXY_PORTS)
-    compose(runner, "up", "-d", "--build", "--wait")
+    compose(runner, "up", "-d", "--wait")
 
     if runner.dry_run:
         typer.echo("[dry-run] WordPress の初期セットアップと CA 登録は省略")
@@ -162,6 +192,7 @@ def install(runner: Runner, root: Path, *, start: bool, trust: bool) -> None:
         typer.echo(
             f"  https://{site.domain}/  (管理者: {env.get('WP_ADMIN_USER')} / パスワードは {root / site.dir_name / '.env'})"
         )
+    typer.echo(f"\nダッシュボード（https://{DASHBOARD_DOMAIN}/）は別の端末で起動してください:\n  {SERVE_COMMAND}")
 
 
 def unsaved_changes(runner: Runner, path: Path) -> list[str]:
@@ -192,6 +223,10 @@ def uninstall(runner: Runner, root: Path, *, assume_yes: bool) -> None:
     if state.get("ca_sha1"):
         typer.echo(f"  - System キーチェーンの Caddy ローカル CA ({state['ca_sha1']})")
 
+    typer.echo(f"  - ダッシュボードの DB（{db_files()[0]}）")
+    if dashboard_running():
+        typer.secho(f"警告: {SERVE_COMMAND} が動いています。先に Ctrl-C で止めてください。", fg=typer.colors.YELLOW)
+
     for path in site_dirs:
         for problem in unsaved_changes(runner, path):
             typer.secho(f"警告: {path} に{problem}があります。削除すると失われます。", fg=typer.colors.YELLOW)
@@ -217,15 +252,18 @@ def uninstall(runner: Runner, root: Path, *, assume_yes: bool) -> None:
         for path in site_dirs:
             if (path / "docker-compose.yml").exists():
                 compose(runner, "down", "--volumes", "--remove-orphans", cwd=path, check=False)
+        # ダッシュボードをコンテナで動かしていた頃の環境では、compose の定義から外れて残る
+        if runner.ok(["docker", "container", "inspect", LEGACY_DASHBOARD_CONTAINER]):
+            runner.run(["docker", "rm", "-f", LEGACY_DASHBOARD_CONTAINER])
 
     def remove_volumes() -> None:
-        names = [*CADDY_VOLUMES, DASHBOARD_VOLUME, *(volume for site in SITES for volume in site.volumes)]
+        names = [*CADDY_VOLUMES, LEGACY_DASHBOARD_VOLUME, *(volume for site in SITES for volume in site.volumes)]
         existing = [name for name in names if runner.ok(["docker", "volume", "inspect", name])]
         if existing:
             runner.run(["docker", "volume", "rm", *existing])
 
     def remove_images() -> None:
-        images = {CADDY_IMAGE, MYSQL_IMAGE, WP_CLI_IMAGE, DASHBOARD_IMAGE}
+        images = {CADDY_IMAGE, MYSQL_IMAGE, WP_CLI_IMAGE, LEGACY_DASHBOARD_IMAGE}
         for site, path in zip(SITES, site_dirs):
             images.add(read_env(path).get("WP_IMAGE", site.image))
         for image in sorted(images):
@@ -253,11 +291,16 @@ def uninstall(runner: Runner, root: Path, *, assume_yes: bool) -> None:
                     shutil.rmtree(path)
 
     def remove_local_files() -> None:
-        for path in (STATE_FILE, CA_CERT_FILE, MAIN_DIR / ".env"):
+        for path in (STATE_FILE, CA_CERT_FILE, MAIN_DIR / ".env", *db_files()):
             if path.exists():
                 typer.echo(f"  rm {path}")
                 if not runner.dry_run:
                     path.unlink()
+        locks = MAIN_DIR / ".local" / "locks"
+        if locks.exists():
+            typer.echo(f"  rm -rf {locks}")
+            if not runner.dry_run:
+                shutil.rmtree(locks)
 
     attempt("コンテナを停止・削除", stop_containers)
     attempt("ボリュームを削除", remove_volumes)

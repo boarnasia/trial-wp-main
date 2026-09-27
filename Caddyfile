@@ -15,5 +15,6 @@
 
 {$DASHBOARD_DOMAIN} {
 	tls internal
-	reverse_proxy dashboard:8000
+	# ダッシュボードはコンテナではなくホストで 127.0.0.1 にだけ bind して動く
+	reverse_proxy host.docker.internal:{$DASHBOARD_PORT}
 }

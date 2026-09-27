@@ -16,10 +16,20 @@ WP2_ENV = WP1_ENV.replace("7.1", "6.7").replace("8081", "8082").replace("wp1", "
 @pytest.fixture
 def sites_dir(tmp_path, monkeypatch):
     for site_id, text in (("wp1", WP1_ENV), ("wp2", WP2_ENV)):
-        (tmp_path / site_id).mkdir()
-        (tmp_path / site_id / ".env").write_text(text)
-    monkeypatch.setenv("DASHBOARD_SITES_DIR", str(tmp_path))
+        (tmp_path / f"wp-{site_id}").mkdir()
+        (tmp_path / f"wp-{site_id}" / ".env").write_text(text)
+    monkeypatch.setenv("WP_MAIN_ROOT", str(tmp_path))
     return tmp_path
+
+
+@pytest.fixture(autouse=True)
+def docker_state(monkeypatch, tmp_path):
+    """実際の Docker に問い合わせないよう、全サイトが起動中として扱う。"""
+    from wp_main.dashboard import power, views
+
+    monkeypatch.setattr(power, "inspect", lambda runner, site, root: power.SiteState(power.RUNNING, root))
+    monkeypatch.setattr(power, "LOCK_DIR", tmp_path / "locks")
+    monkeypatch.setattr(views, "proxy_is_public", lambda: False)
 
 
 @pytest.fixture
@@ -46,14 +56,14 @@ def test_load_sites(sites_dir):
 
 
 def test_missing_env(sites_dir):
-    (sites_dir / "wp2" / ".env").unlink()
+    (sites_dir / "wp-wp2" / ".env").unlink()
     wp1, wp2 = load_sites()
     assert wp1.env_found
     assert not wp2.env_found and wp2.env_path == "../wp-wp2/.env"
 
 
 def test_missing_password(sites_dir):
-    (sites_dir / "wp1" / ".env").write_text(WP1_ENV.replace("WP_ADMIN_PASSWORD=secret-wp1\n", ""))
+    (sites_dir / "wp-wp1" / ".env").write_text(WP1_ENV.replace("WP_ADMIN_PASSWORD=secret-wp1\n", ""))
     wp1, _ = load_sites()
     assert not wp1.has_password
     assert wp1.missing == ("WP_ADMIN_PASSWORD",)
@@ -70,7 +80,7 @@ def test_index_lists_sites_without_passwords(client):
 
 
 def test_index_with_missing_env(client, sites_dir):
-    (sites_dir / "wp2" / ".env").unlink()
+    (sites_dir / "wp-wp2" / ".env").unlink()
     response = client.get("/")
     assert response.status_code == 200
     assert "../wp-wp2/.env が見つかりません" in response.text
@@ -78,7 +88,7 @@ def test_index_with_missing_env(client, sites_dir):
 
 
 def test_index_disables_buttons_without_password(client, sites_dir):
-    (sites_dir / "wp1" / ".env").write_text(WP1_ENV.replace("WP_ADMIN_PASSWORD=secret-wp1\n", ""))
+    (sites_dir / "wp-wp1" / ".env").write_text(WP1_ENV.replace("WP_ADMIN_PASSWORD=secret-wp1\n", ""))
     html = client.get("/").text
     assert 'data-toggle="wp1"' not in html
     assert "wp1 のパスワードは未設定" in html
@@ -91,7 +101,7 @@ def test_password_api_reads_env_each_time(client, sites_dir):
     assert first.json() == {"password": "secret-wp1"}
     assert first.headers["Cache-Control"] == "no-store"
 
-    (sites_dir / "wp1" / ".env").write_text(WP1_ENV.replace("secret-wp1", "changed"))
+    (sites_dir / "wp-wp1" / ".env").write_text(WP1_ENV.replace("secret-wp1", "changed"))
     assert client.get("/api/sites/wp1/password").json() == {"password": "changed"}
 
 

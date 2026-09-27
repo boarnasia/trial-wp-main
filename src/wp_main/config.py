@@ -6,6 +6,8 @@ TEMPLATES_DIR = MAIN_DIR / "templates" / "wp-site"
 LOCAL_DIR = MAIN_DIR / ".local"
 STATE_FILE = LOCAL_DIR / "dev-env-state.json"
 CA_CERT_FILE = LOCAL_DIR / "caddy-root.crt"
+DB_FILE = LOCAL_DIR / "db.sqlite3"
+LOCK_DIR = LOCAL_DIR / "locks"
 
 NETWORK = "wp-global-net"
 CADDY_SERVICE = "caddy"
@@ -16,8 +18,11 @@ MYSQL_IMAGE = "mysql:8.0"
 WP_CLI_IMAGE = "wordpress:cli"
 PROXY_PORTS = (80, 443)
 DASHBOARD_DOMAIN = "local.wp-main.yamashita109.com"
-DASHBOARD_IMAGE = "wp-main-dashboard"
-DASHBOARD_VOLUME = "wp-dashboard-data"
+DEFAULT_DASHBOARD_PORT = 8000
+# ダッシュボードをコンテナで動かしていた頃のリソース。旧環境の後片付けにだけ使う
+LEGACY_DASHBOARD_CONTAINER = "wp-dashboard"
+LEGACY_DASHBOARD_IMAGE = "wp-main-dashboard"
+LEGACY_DASHBOARD_VOLUME = "wp-dashboard-data"
 
 
 @dataclass(frozen=True)

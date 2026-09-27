@@ -3,15 +3,17 @@ from pathlib import Path
 from typing import Annotated
 
 import typer
+from django.core.management import call_command
 
 from django_typer.management import Typer
 
-from .... import __version__, devenv, health, operations, versioning
-from ....config import resolve_root
+from .... import __version__, devenv, health, operations, processes, versioning
+from ....config import DASHBOARD_DOMAIN, resolve_root
 from ....runner import DevEnvError, Runner
+from ....sites import dashboard_port
 
 app = Typer(help="wp-main: マルチリポジトリ WordPress 開発環境の管理 CLI")
-# CLI はホストで動き、DB を開かない。JSONField のシステムチェックは DB に接続するため行わない
+# DB がまだない環境でも各コマンドを動かすため、DB に接続するシステムチェックは行わない
 Command.requires_system_checks = []  # noqa: F821  Typer() がこのモジュールに Command を作る
 
 # 移行そのものや状態の確認、情報表示では警告を出さない
@@ -145,6 +147,29 @@ def check_health(
     options = {"root": root, "json": as_json}
     operations.record("check-health", options, started, now(), exit_code=code, succeeded=code == 0, summary=counts)
     raise typer.Exit(code)
+
+
+@app.command("serve")
+def serve(root: RootOption = None) -> None:
+    """ダッシュボードなど、ホストで動かす開発用のプロセスをまとめて起動する（Ctrl-C で停止）。"""
+    try:
+        port = dashboard_port()
+    except DevEnvError as error:
+        typer.secho(f"エラー: {error}", fg=typer.colors.RED, err=True)
+        raise typer.Exit(1) from error
+    if processes.port_in_use(port):
+        typer.secho(
+            f"エラー: 127.0.0.1:{port} は使用中です。止めるか、wp-main の .env の DASHBOARD_PORT で別のポートを指定してください",
+            fg=typer.colors.RED, err=True,
+        )
+        raise typer.Exit(1)
+    try:
+        call_command("migrate", verbosity=0, interactive=False)
+    except Exception as error:
+        typer.secho(f"エラー: DB を準備できません: {error}", fg=typer.colors.RED, err=True)
+        raise typer.Exit(1) from error
+    typer.secho(f"https://{DASHBOARD_DOMAIN}/ (127.0.0.1:{port}) で起動します。Ctrl-C で停止します", fg=typer.colors.CYAN)
+    raise typer.Exit(processes.supervise(processes.host_processes(port, resolve_root(root))))
 
 
 @app.command("version")

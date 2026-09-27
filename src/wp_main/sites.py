@@ -4,7 +4,7 @@ from pathlib import Path
 
 import typer
 
-from .config import TEMPLATES_DIR, Site
+from .config import DEFAULT_DASHBOARD_PORT, MAIN_DIR, TEMPLATES_DIR, Site
 from .runner import DevEnvError, Runner
 
 PLACEHOLDER = re.compile(r"\{\{([A-Z_]+)\}\}")
@@ -123,3 +123,16 @@ def ensure_env(runner: Runner, directory: Path) -> bool:
 def read_env(directory: Path) -> dict[str, str]:
     env = directory / ".env"
     return parse_env(env.read_text()) if env.exists() else {}
+
+
+def dashboard_port(main_dir: Path = MAIN_DIR) -> int:
+    value = read_env(main_dir).get("DASHBOARD_PORT", "")
+    try:
+        return int(value) if value else DEFAULT_DASHBOARD_PORT
+    except ValueError as error:
+        raise DevEnvError(f"{main_dir / '.env'} の DASHBOARD_PORT が数値ではありません: {value}") from error
+
+
+def proxy_is_public(main_dir: Path = MAIN_DIR) -> bool:
+    # docker-compose.yml の既定値と同じく、未設定はループバックとみなす
+    return read_env(main_dir).get("PROXY_BIND_ADDRESS", "127.0.0.1") not in ("127.0.0.1", "")

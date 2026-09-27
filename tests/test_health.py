@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from wp_main import health, operations, trust, versioning
+from wp_main import health, trust, versioning
 from wp_main.config import SITES
 from wp_main.health import FAIL, OK, SKIP, WARN, Check, HealthContext, Result, evaluate
 from wp_main.sites import render_site
@@ -19,7 +19,6 @@ CONTAINERS = [
     {"Name": "wp1-db", "State": "running", "Health": "healthy"},
     {"Name": "wp2-wordpress", "State": "running", "Health": ""},
     {"Name": "wp2-db", "State": "running", "Health": "healthy"},
-    {"Name": "wp-dashboard", "State": "running", "Health": "healthy"},
 ]
 
 
@@ -36,7 +35,7 @@ class World:
         self.network = True
         self.keychain = f"SHA-1 hash: {SHA1}\n"
         self.cert_trusted = True
-        self.api_status: int | Exception = 200
+        self.dashboard_problem: str | None = None
         self.pages = {
             "https://local.wp1.yamashita109.com/": (200, "", page("7.1.2")),
             "https://local.wp2.yamashita109.com/": (200, "", page("6.7.2")),
@@ -46,10 +45,9 @@ class World:
             "http://local.wp-main.yamashita109.com/": (308, "https://local.wp-main.yamashita109.com/", ""),
         }
 
-    def api(self, method, query="", payload=None, *, runner=None):
-        if isinstance(self.api_status, Exception):
-            raise self.api_status
-        return self.api_status, []
+    def probe(self, port: int) -> str | None:
+        self.probed_port = port
+        return self.dashboard_problem
 
     def respond(self, args: list[str]) -> tuple[int, str]:
         if args[:2] == ["git", "-C"]:
@@ -94,7 +92,7 @@ def ctx_factory(tmp_path: Path, fake_runner, world, monkeypatch):
 
     def make(resolver=lambda domain: ["127.0.0.1"]):
         runner = fake_runner(world.respond)
-        return HealthContext(runner, tmp_path, main_dir=main, resolver=resolver, api=world.api)
+        return HealthContext(runner, tmp_path, main_dir=main, resolver=resolver, probe=world.probe)
 
     return make
 
@@ -126,7 +124,7 @@ def test_healthy_environment(ctx_factory):
     versioning.record_latest()
     result = statuses(ctx_factory())
     assert set(result.values()) == {OK}
-    assert len(result) == 28
+    assert len(result) == 27
 
 
 def test_missing_repo_skips_env(ctx_factory, tmp_path):
@@ -256,17 +254,28 @@ def test_version_item_not_installed(ctx_factory, tmp_path):
 
 
 def test_stopped_dashboard_only_affects_dashboard(ctx_factory, world):
-    world.containers = [c for c in world.containers if c["Name"] != "wp-dashboard"]
-    result = statuses(ctx_factory())
-    assert result["container.wp-dashboard"] == FAIL
-    assert result["http.https.dashboard"] == SKIP
-    assert result["http.redirect.dashboard"] == OK
-    assert result["http.https.wp1"] == OK and result["http.https.wp2"] == OK
+    world.dashboard_problem = "Connection refused"
+    outcomes = {o.id: o for o in health.run_health(ctx_factory())}
+    assert outcomes["host.dashboard"].status == WARN
+    assert "devenv serve" in outcomes["host.dashboard"].hint
+    assert outcomes["http.https.dashboard"].status == SKIP
+    assert outcomes["http.redirect.dashboard"].status == OK
+    assert outcomes["http.https.wp1"].status == OK
+    assert not any(o.status == FAIL for o in outcomes.values())
 
 
-def test_unhealthy_dashboard_is_fail(ctx_factory, world):
-    next(c for c in world.containers if c["Name"] == "wp-dashboard")["Health"] = "starting"
-    assert statuses(ctx_factory())["container.wp-dashboard"] == FAIL
+def test_dashboard_port_from_env(ctx_factory, world, tmp_path):
+    (tmp_path / "wp-main" / ".env").write_text("DASHBOARD_PORT=8123\n")
+    health.run_health(ctx_factory())
+    assert world.probed_port == 8123
+
+
+def test_proxy_cannot_reach_host_dashboard(ctx_factory, world):
+    world.pages["https://local.wp-main.yamashita109.com/"] = (502, "", "")
+    outcomes = {o.id: o for o in health.run_health(ctx_factory())}
+    assert outcomes["host.dashboard"].status == OK
+    assert outcomes["http.https.dashboard"].status == FAIL
+    assert "docker compose logs caddy" in outcomes["http.https.dashboard"].hint
 
 
 def test_dashboard_dns_failure_suggests_migrate(ctx_factory):
@@ -277,22 +286,3 @@ def test_dashboard_dns_failure_suggests_migrate(ctx_factory):
     assert outcomes["http.https.dashboard"].status == SKIP
     assert outcomes["http.redirect.dashboard"].status == SKIP
     assert outcomes["http.https.wp1"].status == OK
-
-
-def test_api_token_mismatch_is_warn(ctx_factory, world):
-    versioning.record_latest()
-    world.api_status = 401
-    outcomes = {o.id: o for o in health.run_health(ctx_factory())}
-    assert outcomes["http.api.dashboard"].status == WARN
-    assert "docker compose up -d --build dashboard" in outcomes["http.api.dashboard"].hint
-    assert FAIL not in {o.status for o in outcomes.values()}
-
-
-def test_api_unreachable_is_warn(ctx_factory, world):
-    world.api_status = operations.ApiError("timed out")
-    assert statuses(ctx_factory())["http.api.dashboard"] == WARN
-
-
-def test_api_skipped_when_dashboard_stopped(ctx_factory, world):
-    world.containers = [c for c in world.containers if c["Name"] != "wp-dashboard"]
-    assert statuses(ctx_factory())["http.api.dashboard"] == SKIP

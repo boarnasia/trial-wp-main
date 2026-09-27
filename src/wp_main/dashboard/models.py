@@ -1,6 +1,5 @@
 from django.db import models
 
-COMMANDS = ("install", "migrate", "check-health")
 MAX_OPERATIONS = 1000
 
 

@@ -148,3 +148,13 @@ def test_install_enables_hooks(env, fake_runner):
     runner = fake_runner(responder())
     devenv.install(runner, root, start=False, trust=True)
     assert [call for call in runner.calls if call[-2:] == ["core.hooksPath", ".githooks"]]
+
+
+def test_install_prepares_db_and_suggests_serve(env, fake_runner, monkeypatch, capsys, prepared_db):
+    root, _ = env
+    monkeypatch.setattr(devenv, "check_ports", lambda runner, ports: None)
+    runner = fake_runner(responder())
+    devenv.install(runner, root, start=True, trust=True)
+    assert prepared_db == [False]
+    assert ["docker", "compose", "up", "-d", "--wait"] in runner.calls
+    assert "uv run manage.py devenv serve" in capsys.readouterr().out
