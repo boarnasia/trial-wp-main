@@ -6,11 +6,10 @@ from django.utils import timezone
 from django.views.decorators.http import require_POST, require_safe
 from ninja import NinjaAPI
 
-from .. import operations
+from .. import operations, power
 from ..config import SITES
 from ..runner import DevEnvError, Runner
 from ..sites import proxy_is_public
-from . import power
 from .data import find_password, load_sites, sites_root
 from .models import Operation
 
@@ -31,7 +30,7 @@ def index(request):
     runner, root, public = Runner(), sites_root(), proxy_is_public()
     rows = []
     for view, site in zip(load_sites(root), SITES):
-        state = power.inspect(runner, site, root)
+        state = power.inspect(runner, site)
         busy = power.is_busy(site)
         rows.append((view, {
             "state": state,
@@ -73,12 +72,12 @@ def site_action(request, site_id: str, action: str):
         return redirect("/")
     except DevEnvError as error:
         summary = f"{site.id} の{label}に失敗しました: {error}"
-        operations.record(f"site-{action}", {"site": site.id}, started, timezone.now(),
+        operations.record(f"site-{action}", {"site": site.id, "via": "dashboard"}, started, timezone.now(),
                           exit_code=1, succeeded=False, summary=summary)
         messages.error(request, summary)
         return redirect("/")
     summary = f"{site.id} を{label}しました"
-    operations.record(f"site-{action}", {"site": site.id}, started, timezone.now(),
+    operations.record(f"site-{action}", {"site": site.id, "via": "dashboard"}, started, timezone.now(),
                       exit_code=0, succeeded=True, summary=summary)
     messages.success(request, summary)
     return redirect("/")

@@ -15,10 +15,9 @@ PEM = "-----BEGIN CERTIFICATE-----\n" + base64.b64encode(DER).decode() + "\n----
 SHA1 = hashlib.sha1(DER).hexdigest().upper()
 CONTAINERS = [
     {"Name": "wp-caddy", "State": "running", "Health": ""},
+    {"Name": "wp-mysql", "State": "running", "Health": "healthy"},
     {"Name": "wp1-wordpress", "State": "running", "Health": ""},
-    {"Name": "wp1-db", "State": "running", "Health": "healthy"},
     {"Name": "wp2-wordpress", "State": "running", "Health": ""},
-    {"Name": "wp2-db", "State": "running", "Health": "healthy"},
 ]
 
 
@@ -124,7 +123,7 @@ def test_healthy_environment(ctx_factory):
     versioning.record_latest()
     result = statuses(ctx_factory())
     assert set(result.values()) == {OK}
-    assert len(result) == 27
+    assert len(result) == 26
 
 
 def test_missing_repo_skips_env(ctx_factory, tmp_path):
@@ -134,12 +133,13 @@ def test_missing_repo_skips_env(ctx_factory, tmp_path):
     result = statuses(ctx_factory())
     assert result["config.repo.wp1"] == FAIL
     assert result["config.env.wp1"] == SKIP
-    assert result["container.wp1-db"] == SKIP
+    assert result["site.wp1"] == SKIP
+    assert result["site.wp2"] == OK
 
 
 def test_placeholder_secret_is_warn(ctx_factory, tmp_path):
     env = tmp_path / "wp-wp2" / ".env"
-    env.write_text(env.read_text().replace("MYSQL_PASSWORD=secret", "MYSQL_PASSWORD=change-me"))
+    env.write_text(env.read_text().replace("WP_ADMIN_PASSWORD=secret", "WP_ADMIN_PASSWORD=change-me"))
     assert statuses(ctx_factory())["config.env.wp2"] == WARN
 
 
@@ -178,9 +178,40 @@ def test_stopped_caddy_skips_http(ctx_factory, world, as_array):
     assert all(result[f"http.{kind}.{s.id}"] == SKIP for kind in ("https", "redirect") for s in SITES)
 
 
-def test_unhealthy_db_is_fail(ctx_factory, world):
-    world.containers[2]["Health"] = "starting"
-    assert statuses(ctx_factory())["container.wp1-db"] == FAIL
+def test_unhealthy_mysql_is_fail(ctx_factory, world):
+    world.containers[1]["Health"] = "starting"
+    result = statuses(ctx_factory())
+    assert result["container.wp-mysql"] == FAIL
+    assert result["site.wp1"] == SKIP and result["http.https.wp1"] == SKIP
+
+
+def test_stopped_mysql_fails(ctx_factory, world):
+    world.containers[1]["State"] = "exited"
+    outcomes = health.run_health(ctx_factory())
+    assert {o.id: o.status for o in outcomes}["container.wp-mysql"] == FAIL
+    assert health.summarize(outcomes)[FAIL] == 1
+
+
+def test_stopped_site_is_skipped(ctx_factory, world):
+    versioning.record_latest()
+    world.containers = [c for c in world.containers if c["Name"] != "wp2-wordpress"]
+    outcomes = {o.id: o for o in health.run_health(ctx_factory())}
+    assert outcomes["site.wp2"].status == SKIP and "停止中" in outcomes["site.wp2"].message
+    for kind in ("https", "redirect", "installed", "version"):
+        assert outcomes[f"http.{kind}.wp2"].status == SKIP
+    assert "停止中" in outcomes["http.https.wp2"].message
+    # 前提をたどった項目でも、理由は大もとの 1 段だけ
+    assert outcomes["http.version.wp2"].message.count("前提の項目") == 1
+    assert "site.wp2（停止中" in outcomes["http.version.wp2"].message
+    assert outcomes["http.https.wp1"].status == OK
+    assert not any(o.status in (FAIL, WARN) for o in outcomes.values())
+
+
+def test_expected_version_comes_from_site_env(ctx_factory, world, tmp_path):
+    env = tmp_path / "wp-wp1" / ".env"
+    env.write_text(env.read_text().replace("WP_IMAGE=wordpress:7.1-apache", "WP_IMAGE=wordpress:6.9-apache"))
+    world.pages["https://local.wp1.yamashita109.com/"] = (200, "", page("6.9.0"))
+    assert statuses(ctx_factory())["http.version.wp1"] == OK
 
 
 def test_not_installed_is_fail(ctx_factory, world):
@@ -256,8 +287,8 @@ def test_version_item_not_installed(ctx_factory, tmp_path):
 def test_stopped_dashboard_only_affects_dashboard(ctx_factory, world):
     world.dashboard_problem = "Connection refused"
     outcomes = {o.id: o for o in health.run_health(ctx_factory())}
-    assert outcomes["host.dashboard"].status == WARN
-    assert "devenv serve" in outcomes["host.dashboard"].hint
+    assert outcomes["host.dashboard"].status == SKIP
+    assert "uv run manage.py serve" in outcomes["host.dashboard"].message
     assert outcomes["http.https.dashboard"].status == SKIP
     assert outcomes["http.redirect.dashboard"].status == OK
     assert outcomes["http.https.wp1"].status == OK

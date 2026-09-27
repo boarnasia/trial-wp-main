@@ -1,10 +1,18 @@
-# 一括起動: Caddy と wp-wp1 / wp-wp2 の全サービスを 1 プロジェクトとして起動する
-# 各サイトの .env は include 先のディレクトリから読み込まれる
+# メインコントローラー: Caddy・共有 MySQL と、各サイトの WordPress を 1 プロジェクトとして定義する
+# サイトは serve（開発セッション）の間だけ起動する。サイトの定義は compose/<サイト ID>.yml
 name: wp-main
 
 include:
-  - ../wp-wp1/docker-compose.yml
-  - ../wp-wp2/docker-compose.yml
+  # サイト設定はサイトの .env から読む。wp-main の .env の同名の値が優先されるため、サイト設定の変数を wp-main の .env に置かない
+  # .env のないサイトがあっても他を操作できるよう、wp-main のツールは WPN_ENV_FILE=/dev/null を渡す
+  - path: compose/wp1.yml
+    project_directory: ../wp-wp1
+    env_file:
+      - "${WP1_ENV_FILE:-../wp-wp1/.env}"
+  - path: compose/wp2.yml
+    project_directory: ../wp-wp2
+    env_file:
+      - "${WP2_ENV_FILE:-../wp-wp2/.env}"
 
 services:
   caddy:
@@ -21,7 +29,7 @@ services:
       WP2_DOMAIN: ${WP2_DOMAIN}
       # 既存の .env は上書きされないため、DASHBOARD_DOMAIN がない環境でも動くよう既定値を持たせる
       DASHBOARD_DOMAIN: ${DASHBOARD_DOMAIN:-local.wp-main.yamashita109.com}
-      # ダッシュボードはホストで devenv serve が動かす。ポートは devenv serve と同じ .env の値を使う
+      # ダッシュボードはホストで serve が動かす。ポートは serve と同じ .env の値を使う
       DASHBOARD_PORT: ${DASHBOARD_PORT:-8000}
     # Docker Desktop 以外のエンジンでも host.docker.internal をホストに向ける
     extra_hosts:
@@ -33,9 +41,36 @@ services:
     networks:
       - wp-global-net
 
+  mysql:
+    image: mysql:8.0
+    # 固定名にして、ダッシュボードや migration が docker exec で直接扱えるようにする
+    container_name: wp-mysql
+    restart: unless-stopped
+    environment:
+      # サイトの .env に残る旧 MYSQL_* と混同しないよう、wp-main 側は DB_* で持つ
+      MYSQL_USER: ${DB_USER:-wordpress}
+      MYSQL_PASSWORD: ${DB_PASSWORD}
+      MYSQL_ROOT_PASSWORD: ${DB_ROOT_PASSWORD}
+    # ホストの DB クライアントから見られるよう、ループバックにだけ公開する
+    ports:
+      - "127.0.0.1:${MYSQL_PORT:-3306}:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+    networks:
+      - wp-db
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -uroot -p$$MYSQL_ROOT_PASSWORD --silent"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 20s
+
 networks:
   wp-global-net:
     external: true
+  # プロキシから DB が見えないよう、DB は WordPress とだけ共有するネットワークに置く
+  wp-db:
+    name: wp-db
 
 volumes:
   # 内部 CA の鍵を保持し、down/up でキーチェーンの信頼登録が無効にならないようにする
@@ -43,3 +78,5 @@ volumes:
     name: wp-caddy-data
   caddy_config:
     name: wp-caddy-config
+  mysql_data:
+    name: wp-mysql-data

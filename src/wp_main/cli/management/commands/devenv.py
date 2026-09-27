@@ -3,14 +3,12 @@ from pathlib import Path
 from typing import Annotated
 
 import typer
-from django.core.management import call_command
 
 from django_typer.management import Typer
 
-from .... import __version__, devenv, health, operations, processes, versioning
-from ....config import DASHBOARD_DOMAIN, resolve_root
+from .... import __version__, devenv, health, operations, versioning
+from ....config import resolve_root
 from ....runner import DevEnvError, Runner
-from ....sites import dashboard_port
 
 app = Typer(help="wp-main: マルチリポジトリ WordPress 開発環境の管理 CLI")
 # DB がまだない環境でも各コマンドを動かすため、DB に接続するシステムチェックは行わない
@@ -149,27 +147,12 @@ def check_health(
     raise typer.Exit(code)
 
 
-@app.command("serve")
+# 以前の手順やメモから呼ばれたときに、新しいコマンドへ案内する
+@app.command("serve", hidden=True)
 def serve(root: RootOption = None) -> None:
-    """ダッシュボードなど、ホストで動かす開発用のプロセスをまとめて起動する（Ctrl-C で停止）。"""
-    try:
-        port = dashboard_port()
-    except DevEnvError as error:
-        typer.secho(f"エラー: {error}", fg=typer.colors.RED, err=True)
-        raise typer.Exit(1) from error
-    if processes.port_in_use(port):
-        typer.secho(
-            f"エラー: 127.0.0.1:{port} は使用中です。止めるか、wp-main の .env の DASHBOARD_PORT で別のポートを指定してください",
-            fg=typer.colors.RED, err=True,
-        )
-        raise typer.Exit(1)
-    try:
-        call_command("migrate", verbosity=0, interactive=False)
-    except Exception as error:
-        typer.secho(f"エラー: DB を準備できません: {error}", fg=typer.colors.RED, err=True)
-        raise typer.Exit(1) from error
-    typer.secho(f"https://{DASHBOARD_DOMAIN}/ (127.0.0.1:{port}) で起動します。Ctrl-C で停止します", fg=typer.colors.CYAN)
-    raise typer.Exit(processes.supervise(processes.host_processes(port, resolve_root(root))))
+    """（廃止）uv run manage.py serve を使う。"""
+    typer.secho("devenv serve は廃止しました。uv run manage.py serve --site=wp1,wp2 を使ってください", fg=typer.colors.RED, err=True)
+    raise typer.Exit(1)
 
 
 @app.command("version")

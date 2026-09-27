@@ -2,6 +2,7 @@ import secrets
 
 import typer
 
+from ...config import CADDY_SERVICE
 from ...docker import compose
 from ...sites import parse_env
 
@@ -28,6 +29,7 @@ def rebuild_if_running(ctx) -> None:
     running = compose(ctx.runner, "ps", "--status", "running", "-q", "caddy", cwd=ctx.main_dir, check=False, mutate=False)
     # 停止中の環境を勝手に起動しない。次の docker compose up で反映される
     if running.returncode != 0 or not running.stdout.strip():
-        typer.echo("  プロキシが停止しているため、コンテナは起動しません。次の docker compose up -d --build で反映されます")
+        typer.echo("  プロキシが停止しているため、コンテナは起動しません。次の serve で反映されます")
         return
-    compose(ctx.runner, "up", "-d", "--build", "--wait", cwd=ctx.main_dir)
+    # サイトは開発セッションの外では動かさない。共有 MySQL の設定は migration 6 が用意するまで揃わないので、プロキシだけを作り直す
+    compose(ctx.runner, "up", "-d", "--wait", CADDY_SERVICE, cwd=ctx.main_dir)

@@ -156,5 +156,20 @@ def test_install_prepares_db_and_suggests_serve(env, fake_runner, monkeypatch, c
     runner = fake_runner(responder())
     devenv.install(runner, root, start=True, trust=True)
     assert prepared_db == [False]
-    assert ["docker", "compose", "up", "-d", "--wait"] in runner.calls
-    assert "uv run manage.py devenv serve" in capsys.readouterr().out
+    assert ["docker", "compose", "up", "-d", "--wait", "--wait-timeout", "120", "caddy", "mysql"] in runner.calls
+    assert "uv run manage.py serve --site=all" in capsys.readouterr().out
+
+
+def test_sites_run_only_during_setup(env, fake_runner, monkeypatch):
+    root, _ = env
+    monkeypatch.setattr(devenv, "check_ports", lambda runner, ports: None)
+    runner = fake_runner(responder())
+    devenv.install(runner, root, start=True, trust=True)
+    calls = runner.calls
+    for site in SITES:
+        started = index_of(calls, lambda call: call[:3] == ["docker", "compose", "up"] and call[-1] == site.wordpress_service)
+        installed = index_of(calls, has("core", "install", f"--url=https://{site.domain}"))
+        stopped = index_of(calls, lambda call: call == ["docker", "compose", "stop", site.wordpress_service])
+        assert started < installed < stopped
+    # 全体を起動する compose up（サービス指定なし）は使わない
+    assert ["docker", "compose", "up", "-d", "--wait"] not in calls

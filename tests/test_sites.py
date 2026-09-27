@@ -17,14 +17,15 @@ def test_render_unknown_placeholder():
         render_text("{{NOPE}}", {})
 
 
-def test_render_site_leaves_compose_variables(tmp_path: Path):
-    render_site(WP1, tmp_path)
-    compose = (tmp_path / "docker-compose.yml").read_text()
-    assert "wp1-wordpress:" in compose and "{{" not in compose
-    assert "${MYSQL_PASSWORD}" in compose
+def test_render_site_has_settings_but_no_containers(tmp_path: Path):
+    written = render_site(WP1, tmp_path)
+    assert not (tmp_path / "docker-compose.yml").exists()
+    assert all("{{" not in path.read_text() for path in written)
     env = parse_env((tmp_path / ".env.example").read_text())
     assert env["WP_IMAGE"] == "wordpress:7.1-apache"
     assert env["WP_HOME"] == "https://local.wp1.yamashita109.com"
+    assert env["WP_DB_NAME"] == "wp1"
+    assert not [key for key in env if key.startswith("MYSQL_")]
 
 
 def test_existing_clone_is_skipped(tmp_path: Path, fake_runner):
@@ -62,9 +63,8 @@ def test_env_generated_with_secrets(tmp_path: Path, fake_runner):
     render_site(WP1, tmp_path)
     assert ensure_env(fake_runner(), tmp_path)
     env = parse_env((tmp_path / ".env").read_text())
-    assert env["MYSQL_PASSWORD"] != SECRET_PLACEHOLDER
-    assert env["MYSQL_PASSWORD"] != env["MYSQL_ROOT_PASSWORD"]
-    assert env["MYSQL_USER"] == "wordpress"
+    assert env["WP_ADMIN_PASSWORD"] != SECRET_PLACEHOLDER
+    assert env["WP_ADMIN_USER"] == "admin"
 
 
 def test_env_not_overwritten(tmp_path: Path, fake_runner):

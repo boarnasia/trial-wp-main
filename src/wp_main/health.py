@@ -7,8 +7,9 @@ from collections.abc import Callable
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
-from .config import CADDY_ROOT_CERT, CADDY_SERVICE, DASHBOARD_DOMAIN, MAIN_DIR, NETWORK, SITES, Site
+from .config import CADDY_ROOT_CERT, CADDY_SERVICE, DASHBOARD_DOMAIN, MAIN_DIR, MYSQL_CONTAINER, NETWORK, SITES, Site
 from . import versioning
+from .docker import compose
 from .runner import Runner
 from .sites import SECRET_PLACEHOLDER, dashboard_port, read_env
 from .trust import SYSTEM_KEYCHAIN, pem_sha1
@@ -18,7 +19,8 @@ STATUSES = (OK, WARN, FAIL, SKIP)
 GROUPS = {
     "config": "構成",
     "host": "ホスト",
-    "container": "コンテナ",
+    "container": "共有インフラ",
+    "site": "サイト",
     "http": "HTTP と WordPress",
 }
 # macOS 標準の curl だけがキーチェーンの CA を参照する（Homebrew 版や Python の ssl は参照しない）
@@ -26,7 +28,7 @@ CURL = "/usr/bin/curl"
 CURL_TIMEOUT = "5"
 CURL_SSL_ERROR = 60
 CADDY_CONTAINER = "wp-caddy"
-SERVE_HINT = "別の端末で uv run manage.py devenv serve を実行してください"
+OUTSIDE_SESSION = "開発セッションの外です（uv run manage.py serve で始まります）"
 INSTALL_HINT = "uv run manage.py devenv install を実行してください"
 
 
@@ -58,17 +60,22 @@ class Outcome:
 
 def evaluate(checks: list[Check]) -> list[Outcome]:
     statuses: dict[str, str] = {}
+    # 前提をたどって SKIP になった項目では、入れ子にせず大もとの項目と理由だけを見せる
+    causes: dict[str, str] = {}
     outcomes = []
     for check in checks:
         blocked = [req for req in check.requires if statuses.get(req) in (FAIL, SKIP)]
         if blocked:
-            result = Result(SKIP, f"前提の項目が失敗しています: {', '.join(blocked)}")
+            cause = ", ".join(dict.fromkeys(causes[req] for req in blocked))
+            result = Result(SKIP, f"前提の項目が OK ではありません: {cause}")
         else:
             try:
                 result = check.run()
             except Exception as error:  # 1 項目の想定外の失敗で残りの確認を止めない
                 result = Result(FAIL, f"確認中にエラーが発生しました: {error}")
+            cause = f"{check.id}（{result.message}）"
         statuses[check.id] = result.status
+        causes[check.id] = cause
         outcomes.append(Outcome(check.id, check.group, check.title, result.status, result.message, result.hint))
     return outcomes
 
@@ -123,7 +130,8 @@ def probe_dashboard(port: int) -> str | None:
 
 
 def expected_major(site: Site, env: dict[str, str]) -> str | None:
-    image = env.get("WP_IMAGE", site.image)
+    # サイト設定の正本はサイトの .env なので、SITES の既定値では判定しない
+    image = env.get("WP_IMAGE", "")
     match = re.search(r":(\d+)", image)
     return match.group(1) if match else None
 
@@ -143,7 +151,9 @@ class HealthContext:
 
     def containers(self) -> dict[str, dict]:
         if self._containers is None:
-            result = self.cmd(["docker", "compose", "ps", "--all", "--format", "json"], cwd=self.main_dir)
+            result = compose(
+                self.runner, "ps", "--all", "--format", "json", cwd=self.main_dir, check=False, mutate=False
+            )
             if result.returncode != 0:
                 detail = (result.stderr or "").strip().splitlines()
                 raise RuntimeError(detail[-1] if detail else "docker compose ps が失敗しました")
@@ -256,8 +266,8 @@ def host_checks(ctx: HealthContext) -> list[Check]:
         port = dashboard_port(ctx.main_dir)
         problem = ctx.probe(port)
         if problem:
-            # ダッシュボードは必要なときだけ動かすものなので、止まっていても環境の故障とはみなさない
-            return Result(WARN, f"127.0.0.1:{port} で応答しません（{problem}）", SERVE_HINT)
+            # ダッシュボードは開発セッションの間だけ動くものなので、止まっていても環境の故障とはみなさない
+            return Result(SKIP, f"127.0.0.1:{port} で応答しません（{problem}）。{OUTSIDE_SESSION}")
         return Result(OK, f"127.0.0.1:{port}")
 
     checks.append(Check("host.dashboard", "host", "ダッシュボードのプロセス", dashboard))
@@ -286,27 +296,44 @@ def ca_check(ctx: HealthContext) -> Check:
     return Check("host.ca", "host", "Caddy ローカル CA の信頼登録", run, (f"container.{CADDY_CONTAINER}",))
 
 
+INFRA_HINT = "uv run manage.py serve で起動するか、wp-main で docker compose up -d caddy mysql を実行してください"
+
+
 def container_checks(ctx: HealthContext) -> list[Check]:
-    requires = (*(f"config.repo.{site.id}" for site in SITES), "host.network")
-    names = [
-        CADDY_CONTAINER,
-        *(name for site in SITES for name in (f"{site.id}-wordpress", f"{site.id}-db")),
-    ]
     checks = []
-    for name in names:
+    for name in (CADDY_CONTAINER, MYSQL_CONTAINER):
 
         def run(name=name) -> Result:
             info = ctx.containers().get(name)
             if info is None:
-                return Result(FAIL, "コンテナがありません", "wp-main で docker compose up -d を実行してください")
+                return Result(FAIL, "コンテナがありません", INFRA_HINT)
             state, health = info.get("State", ""), info.get("Health", "")
             if state != "running":
-                return Result(FAIL, f"状態: {state}", "wp-main で docker compose up -d を実行してください")
-            if name.endswith("-db") and health != "healthy":
+                return Result(FAIL, f"状態: {state}", INFRA_HINT)
+            if name == MYSQL_CONTAINER and health != "healthy":
                 return Result(FAIL, f"ヘルスチェック: {health or '未設定'}", f"docker compose logs {name} を確認してください")
             return Result(OK, f"{state}{f' ({health})' if health else ''}")
 
-        checks.append(Check(f"container.{name}", "container", name, run, requires))
+        checks.append(Check(f"container.{name}", "container", name, run, ("host.network",)))
+    return checks
+
+
+def site_checks(ctx: HealthContext) -> list[Check]:
+    checks = []
+    for site in SITES:
+
+        def run(site=site) -> Result:
+            info = ctx.containers().get(site.wordpress_service)
+            state = info.get("State", "") if info else ""
+            if state != "running":
+                # サイトは開発セッションの間だけ動くものなので、止まっていても故障とはみなさない
+                return Result(SKIP, f"停止中（uv run manage.py serve --site={site.id} で起動します）")
+            return Result(OK, state)
+
+        checks.append(Check(
+            f"site.{site.id}", "site", site.wordpress_service, run,
+            (f"config.repo.{site.id}", f"container.{MYSQL_CONTAINER}"),
+        ))
     return checks
 
 
@@ -314,7 +341,7 @@ def http_checks(ctx: HealthContext) -> list[Check]:
     checks = []
     for site in SITES:
         https_url = f"https://{site.domain}/"
-        base_requires = (f"host.dns.{site.id}", f"container.{CADDY_CONTAINER}")
+        base_requires = (f"host.dns.{site.id}", f"container.{CADDY_CONTAINER}", f"site.{site.id}")
 
         def https(site=site, url=https_url) -> Result:
             response = ctx.fetch(url)
@@ -359,8 +386,7 @@ def http_checks(ctx: HealthContext) -> list[Check]:
             return Result(OK, f"WordPress {actual}")
 
         checks += [
-            Check(f"http.https.{site.id}", "http", f"HTTPS {site.domain}", https,
-                  (*base_requires, f"container.{site.id}-wordpress")),
+            Check(f"http.https.{site.id}", "http", f"HTTPS {site.domain}", https, base_requires),
             Check(f"http.redirect.{site.id}", "http", f"HTTP → HTTPS {site.domain}", redirect, base_requires),
             Check(f"http.installed.{site.id}", "http", f"インストール済み {site.domain}", installed,
                   (f"http.https.{site.id}",)),
@@ -375,9 +401,6 @@ def dashboard_http_checks(ctx: HealthContext) -> list[Check]:
     base_requires = ("host.dns.dashboard", f"container.{CADDY_CONTAINER}")
 
     def https() -> Result:
-        # host.dashboard は WARN どまりで後続を止めないため、ここで応答の有無を見て SKIP にする
-        if ctx.probe(dashboard_port(ctx.main_dir)):
-            return Result(SKIP, "ダッシュボードのプロセスが応答していません")
         response = ctx.fetch(https_url)
         if isinstance(response, str):
             return Result(FAIL, f"接続できません: {response}", "docker compose logs caddy を確認してください")
@@ -409,7 +432,9 @@ def dashboard_http_checks(ctx: HealthContext) -> list[Check]:
 
 def build_checks(ctx: HealthContext) -> list[Check]:
     # CA はコンテナの項目を前提にするため、表示順（グループ順）とは別に後ろで評価する
-    return [*config_checks(ctx), *host_checks(ctx), *container_checks(ctx), ca_check(ctx), *http_checks(ctx)]
+    return [
+        *config_checks(ctx), *host_checks(ctx), *container_checks(ctx), ca_check(ctx), *site_checks(ctx), *http_checks(ctx)
+    ]
 
 
 def run_health(ctx: HealthContext) -> list[Outcome]:

@@ -5,18 +5,20 @@ from pathlib import Path
 import typer
 from django.core.management import call_command
 
-from .. import health, hosts, versioning
+from .. import health, hosts, power, versioning
 from ..config import (
     CA_CERT_FILE,
     CADDY_IMAGE,
     CADDY_VOLUMES,
     DASHBOARD_DOMAIN,
+    DB_NETWORK,
     LEGACY_DASHBOARD_CONTAINER,
     LEGACY_DASHBOARD_IMAGE,
     LEGACY_DASHBOARD_VOLUME,
     LOCAL_DIR,
     MAIN_DIR,
     MYSQL_IMAGE,
+    MYSQL_VOLUME,
     NETWORK,
     PROXY_PORTS,
     SITES,
@@ -62,7 +64,7 @@ def install_wordpress(runner: Runner, site: Site, root: Path) -> None:
     )
 
 
-SERVE_COMMAND = "uv run manage.py devenv serve"
+SERVE_COMMAND = "uv run manage.py serve --site=all"
 
 
 def prepare_db(runner: Runner) -> None:
@@ -159,13 +161,13 @@ def install(runner: Runner, root: Path, *, start: bool, trust: bool) -> None:
 
     if not start:
         finish_version(runner, root, fresh)
-        typer.echo("--no-start のため起動と CA 登録を省略しました。起動: docker compose up -d")
-        typer.echo(f"ダッシュボードは別の端末で起動してください: {SERVE_COMMAND}")
+        typer.echo("--no-start のため起動・WordPress の初期セットアップ・CA 登録を省略しました")
+        typer.echo(f"開発は別の端末で始めてください: {SERVE_COMMAND}")
         return
 
-    step("コンテナを起動")
+    step("共有インフラ（プロキシ・MySQL）を起動")
     check_ports(runner, PROXY_PORTS)
-    compose(runner, "up", "-d", "--wait")
+    power.start_infra(runner, MAIN_DIR)
 
     if runner.dry_run:
         typer.echo("[dry-run] WordPress の初期セットアップと CA 登録は省略")
@@ -173,7 +175,12 @@ def install(runner: Runner, root: Path, *, start: bool, trust: bool) -> None:
 
     step("WordPress の初期セットアップ")
     for site in SITES:
-        install_wordpress(runner, site, root)
+        # サイトは開発セッションの外では動かさないので、セットアップの間だけ起動する
+        power.start(runner, site, root, MAIN_DIR)
+        try:
+            install_wordpress(runner, site, root)
+        finally:
+            power.stop(runner, site, root, MAIN_DIR)
 
     step("Caddy ローカル CA を System キーチェーンに登録（sudo）")
     if trust:
@@ -192,7 +199,7 @@ def install(runner: Runner, root: Path, *, start: bool, trust: bool) -> None:
         typer.echo(
             f"  https://{site.domain}/  (管理者: {env.get('WP_ADMIN_USER')} / パスワードは {root / site.dir_name / '.env'})"
         )
-    typer.echo(f"\nダッシュボード（https://{DASHBOARD_DOMAIN}/）は別の端末で起動してください:\n  {SERVE_COMMAND}")
+    typer.echo(f"\n開発セッション（サイトとダッシュボード https://{DASHBOARD_DOMAIN}/）は別の端末で始めてください:\n  {SERVE_COMMAND}")
 
 
 def unsaved_changes(runner: Runner, path: Path) -> list[str]:
@@ -218,14 +225,14 @@ def uninstall(runner: Runner, root: Path, *, assume_yes: bool) -> None:
     typer.echo("次のリソースを削除します:")
     for path in site_dirs:
         typer.echo(f"  - {path}")
-    typer.echo(f"  - コンテナ・ボリューム・イメージ、ネットワーク {NETWORK}")
+    typer.echo(f"  - コンテナ・ボリューム（共有 MySQL のデータ {MYSQL_VOLUME} を含む）・イメージ、ネットワーク {NETWORK}・{DB_NETWORK}")
     typer.echo("  - /etc/hosts の wp-dev-env ブロック")
     if state.get("ca_sha1"):
         typer.echo(f"  - System キーチェーンの Caddy ローカル CA ({state['ca_sha1']})")
 
     typer.echo(f"  - ダッシュボードの DB（{db_files()[0]}）")
     if dashboard_running():
-        typer.secho(f"警告: {SERVE_COMMAND} が動いています。先に Ctrl-C で止めてください。", fg=typer.colors.YELLOW)
+        typer.secho("警告: uv run manage.py serve が動いています。先に Ctrl-C で止めてください。", fg=typer.colors.YELLOW)
 
     for path in site_dirs:
         for problem in unsaved_changes(runner, path):
@@ -246,18 +253,15 @@ def uninstall(runner: Runner, root: Path, *, assume_yes: bool) -> None:
             failures.append(title)
 
     def stop_containers() -> None:
-        # 一括起動（wp-main）と単体起動（各サイト）のどちらのプロジェクトも止める
-        if all((path / "docker-compose.yml").exists() for path in site_dirs):
-            compose(runner, "down", "--volumes", "--remove-orphans", check=False)
-        for path in site_dirs:
-            if (path / "docker-compose.yml").exists():
-                compose(runner, "down", "--volumes", "--remove-orphans", cwd=path, check=False)
-        # ダッシュボードをコンテナで動かしていた頃の環境では、compose の定義から外れて残る
-        if runner.ok(["docker", "container", "inspect", LEGACY_DASHBOARD_CONTAINER]):
-            runner.run(["docker", "rm", "-f", LEGACY_DASHBOARD_CONTAINER])
+        compose(runner, "down", "--volumes", "--remove-orphans", check=False)
+        # 旧構成（コンテナのダッシュボード、サイトごとの DB）の環境では、compose の定義から外れて残る
+        legacy = [LEGACY_DASHBOARD_CONTAINER, *(site.legacy_db_container for site in SITES)]
+        for name in legacy:
+            if runner.ok(["docker", "container", "inspect", name]):
+                runner.run(["docker", "rm", "-f", name])
 
     def remove_volumes() -> None:
-        names = [*CADDY_VOLUMES, LEGACY_DASHBOARD_VOLUME, *(volume for site in SITES for volume in site.volumes)]
+        names = [*CADDY_VOLUMES, MYSQL_VOLUME, LEGACY_DASHBOARD_VOLUME, *(volume for site in SITES for volume in site.volumes)]
         existing = [name for name in names if runner.ok(["docker", "volume", "inspect", name])]
         if existing:
             runner.run(["docker", "volume", "rm", *existing])
@@ -273,8 +277,9 @@ def uninstall(runner: Runner, root: Path, *, assume_yes: bool) -> None:
                     typer.echo(f"  {image} は使用中のため残します")
 
     def remove_network() -> None:
-        if runner.ok(["docker", "network", "inspect", NETWORK]):
-            runner.run(["docker", "network", "rm", NETWORK])
+        for name in (NETWORK, DB_NETWORK):
+            if runner.ok(["docker", "network", "inspect", name]):
+                runner.run(["docker", "network", "rm", name])
 
     def remove_ca() -> None:
         if state.get("ca_sha1"):
@@ -305,7 +310,7 @@ def uninstall(runner: Runner, root: Path, *, assume_yes: bool) -> None:
     attempt("コンテナを停止・削除", stop_containers)
     attempt("ボリュームを削除", remove_volumes)
     attempt("イメージを削除", remove_images)
-    attempt(f"ネットワーク {NETWORK} を削除", remove_network)
+    attempt(f"ネットワーク {NETWORK}・{DB_NETWORK} を削除", remove_network)
     attempt("Caddy ローカル CA の信頼を解除（sudo）", remove_ca)
     attempt("/etc/hosts のエントリを削除（sudo）", remove_hosts)
     attempt("wp-main の git フックの設定を解除", lambda: disable_hooks(runner))

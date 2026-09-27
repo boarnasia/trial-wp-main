@@ -25,7 +25,7 @@ class HostProcess:
 
 
 def host_processes(port: int, root: Path) -> list[HostProcess]:
-    """devenv serve が起動するプロセス。vite などはここに加える。"""
+    """serve が起動するプロセス。vite などはここに加える。"""
     return [
         HostProcess(
             "dashboard",

@@ -40,7 +40,7 @@ def test_running_environment_is_rebuilt(fake_runner, hosts_file, tmp_path):
     runner = fake_runner(caddy(running=True))
     m0002_dashboard.up(context(runner, tmp_path))
     assert runner.mutating(["sudo", "cp"])
-    assert ["docker", "compose", "up", "-d", "--build", "--wait"] in runner.calls
+    assert ["docker", "compose", "up", "-d", "--wait", "caddy"] in runner.calls
 
 
 def test_stopped_environment_is_not_started(fake_runner, hosts_file, tmp_path):
