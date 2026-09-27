@@ -72,6 +72,17 @@ def test_unknown_when_docker_down():
     assert result.state == power.UNKNOWN
 
 
+@pytest.mark.parametrize(("items", "code", "stderr", "state"), [
+    ([MYSQL_OK], 0, "", power.RUNNING),
+    ([item("wp-mysql", health="starting")], 0, "", power.STARTING),
+    ([item("wp-mysql", status="exited")], 0, "", power.STOPPED),
+    ([], 1, "Error: No such object: wp-mysql", power.STOPPED),
+    ([], 1, "Cannot connect to the Docker daemon", power.UNKNOWN),
+])
+def test_inspect_mysql(items, code, stderr, state):
+    assert power.inspect_mysql(InspectRunner(items, code, stderr)).state == state
+
+
 def test_running_sites():
     runner = InspectRunner([item("wp1-wordpress", "exited"), item("wp2-wordpress")])
     assert power.running_sites(runner) == [WP2]

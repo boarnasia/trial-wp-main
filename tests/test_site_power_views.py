@@ -13,6 +13,9 @@ def calls(monkeypatch, tmp_path):
     done: list[tuple[str, str]] = []
     monkeypatch.setattr(power, "LOCK_DIR", tmp_path / "locks")
     monkeypatch.setattr(power, "inspect", lambda runner, site: power.SiteState(power.RUNNING))
+    monkeypatch.setattr(power, "inspect_mysql", lambda runner: power.SiteState(power.RUNNING))
+    (tmp_path / ".env").write_text("DB_PASSWORD=x\nDB_ROOT_PASSWORD=y\n")
+    monkeypatch.setenv("WP_MAIN_DIR", str(tmp_path))
     monkeypatch.setattr(views, "ACTIONS", {
         "start": (lambda runner, site, root: done.append(("start", site.id)), "起動"),
         "stop": (lambda runner, site, root: done.append(("stop", site.id)), "停止"),

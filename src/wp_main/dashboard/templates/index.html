@@ -8,116 +8,192 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans+JP:wght@400;500;700&display=swap">
-<link rel="stylesheet" href="{% static 'dashboard.css' %}">
+<link rel="stylesheet" href="{% static 'dist/dashboard.css' %}">
 </head>
 <body>
-<main class="page">
-  <header class="header">
-    <h1>wp-main</h1>
-    <span class="meta mono">{{ sites|length }} sites · Caddy internal CA</span>
-    <span class="meta header-note">ID/PW は ../wp-*/.env から読み込み</span>
-  </header>
+<header class="flex flex-wrap items-center gap-4 border-b border-line bg-surface px-4 py-[18px] sm:px-12">
+  <h1 class="m-0 text-lg font-bold">wp-main</h1>
+  <span class="font-mono text-xs text-muted">dev session · {{ sites|length }} sites</span>
+  {% if env_version %}
+  <span class="rounded border border-line px-2 py-0.5 font-mono text-xs text-ink">環境 v{{ env_version }}</span>
+  {% if env_outdated %}<span class="text-xs font-bold text-warn">v{{ env_latest }} への移行が必要: <code class="font-mono">uv run manage.py devenv migrate</code></span>{% endif %}
+  {% endif %}
+  <span class="grow"></span>
+  <nav aria-label="ページ" class="flex gap-1">
+    <a href="/" aria-current="page" class="inline-flex h-[34px] items-center rounded bg-bg px-3.5 text-[13px] font-bold text-text no-underline hover:text-text">ダッシュボード</a>
+  </nav>
+  {% if can_shutdown %}
+  <button type="button" id="shutdown-open" class="ml-2 inline-flex size-9 items-center justify-center rounded-full border border-ok-line bg-ok-bg text-ok" aria-label="開発セッションを終了" title="開発セッションを終了（serve down）">{% include "icons/power.html" %}</button>
+  {% endif %}
+</header>
 
+<main class="flex flex-col gap-8 px-4 py-8 sm:px-12">
   {% if messages %}
-  <ul class="messages" aria-live="polite">
-    {% for message in messages %}<li class="message {{ message.tags }}">{{ message }}</li>{% endfor %}
+  <ul class="m-0 flex list-none flex-col gap-2 p-0" aria-live="polite">
+    {% for message in messages %}<li class="message {{ message.tags }} rounded-lg border border-line bg-surface px-4 py-3 text-sm">{{ message }}</li>{% endfor %}
   </ul>
   {% endif %}
 
-  <div class="table" role="table" aria-label="サイト一覧">
-    <div class="row head" role="row">
-      <div role="columnheader">サイト</div>
-      <div role="columnheader">状態</div>
-      <div role="columnheader">URL</div>
-      <div role="columnheader">ユーザー名</div>
-      <div role="columnheader">パスワード</div>
-      <div role="columnheader">ログイン</div>
+  <section aria-labelledby="infra-title" class="flex flex-col gap-3">
+    <div class="flex items-baseline gap-3">
+      <h2 id="infra-title" class="m-0 text-[15px] font-bold">共有インフラ</h2>
+      <span class="text-xs text-muted">開発セッションに従って動きます</span>
     </div>
-    {% for s, p in rows %}
-    <div class="row" role="row">
-      <div role="cell" class="site">
-        <span class="mono site-id">{{ s.id }}</span>
-        {% if s.version %}<span class="sub">{{ s.version }}</span>{% endif %}
+    <div class="card grid md:grid-cols-[280px_minmax(0,1fr)]">
+      <div class="flex flex-col gap-3.5 border-b border-divider px-6 py-5 md:border-r md:border-b-0">
+        <div class="flex flex-col gap-1">
+          <span class="font-mono text-base font-medium">wp-mysql</span>
+          <span class="text-xs text-muted">{{ mysql_version }}</span>
+        </div>
+        <span class="state {{ mysql.state }} inline-flex h-[26px] items-center gap-1.5 self-start rounded px-2.5 text-xs font-medium {% if mysql.state == 'running' %}bg-ok-bg text-ok{% elif mysql.state == 'starting' %}bg-warn-bg text-warn{% else %}bg-bg text-muted{% endif %}"{% if mysql.detail %} title="{{ mysql.detail }}"{% endif %}>{{ mysql.label }}</span>
       </div>
-      <div role="cell" class="power">
-        <span class="state {{ p.state.state }}"{% if p.state.detail %} title="{{ p.state.detail }}"{% endif %}>{% if p.busy %}処理中{% else %}{{ p.state.label }}{% endif %}</span>
-        <form method="post" action="/sites/{{ s.id }}/{{ p.action }}" data-power>
-          {% csrf_token %}
-          <button type="submit" class="power-button"{% if p.disabled %} disabled{% endif %}>{% if p.action == "start" %}起動{% else %}停止{% endif %}</button>
-        </form>
-      </div>
-      {% if not s.env_found %}
-      <div role="cell" class="problem span-rest">
-        {{ s.env_path }} が見つかりません。<code>uv run manage.py devenv install</code> で生成してください。
-      </div>
-      {% else %}
-      <div role="cell" class="stack">
-        {% if s.url %}<a class="mono" href="{{ s.url }}">{{ s.url_label }}</a>{% else %}<span class="unset">WP_HOME 未設定</span>{% endif %}
-        {% if s.debug_port %}<span class="sub mono">debug {{ s.debug_port }}</span>{% endif %}
-      </div>
-      <div role="cell" class="inline">
-        {% if s.user %}
-        <span class="mono">{{ s.user }}</span>
-        <button type="button" class="icon" data-copy-text="{{ s.user }}" data-label="{{ s.id }} のユーザー名" aria-label="{{ s.id }} のユーザー名をコピー">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="11" height="11" rx="2"></rect><path d="M5 15V5a1 1 0 0 1 1-1h9"></path></svg>
-        </button>
-        {% else %}<span class="unset">未設定</span>{% endif %}
-      </div>
-      <div role="cell" class="inline">
-        {% if s.has_password %}
-        <span class="mono grow" data-password="{{ s.id }}">••••••••••••</span>
-        <button type="button" class="icon" data-toggle="{{ s.id }}" aria-pressed="false" aria-label="{{ s.id }} のパスワードを表示">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"></path><circle cx="12" cy="12" r="3"></circle></svg>
-        </button>
-        <button type="button" class="icon" data-copy-password="{{ s.id }}" aria-label="{{ s.id }} のパスワードをコピー">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="11" height="11" rx="2"></rect><path d="M5 15V5a1 1 0 0 1 1-1h9"></path></svg>
-        </button>
-        {% else %}
-        <span class="unset grow">未設定</span>
-        <button type="button" class="icon" disabled aria-label="{{ s.id }} のパスワードは未設定">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"></path><circle cx="12" cy="12" r="3"></circle></svg>
-        </button>
-        <button type="button" class="icon" disabled aria-label="{{ s.id }} のパスワードは未設定">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="11" height="11" rx="2"></rect><path d="M5 15V5a1 1 0 0 1 1-1h9"></path></svg>
-        </button>
+      <div class="flex flex-col gap-3 px-6 py-5">
+        <dl class="m-0 grid rounded-md border border-divider md:grid-cols-3">
+          <div class="flex flex-col gap-1.5 border-b border-divider px-3.5 py-3 md:border-r md:border-b-0">
+            <dt class="text-xs text-muted">ホスト:ポート</dt>
+            <dd class="m-0 flex items-center gap-1.5 text-sm">
+              <span class="grow font-mono">{{ db.address }}</span>
+              <button type="button" class="icon-button" data-copy-text="{{ db.address }}" data-label="ホストとポート" aria-label="ホストとポートをコピー">{% include "icons/copy.html" %}</button>
+            </dd>
+          </div>
+          <div class="flex flex-col gap-1.5 border-b border-divider px-3.5 py-3 md:border-r md:border-b-0">
+            <dt class="text-xs text-muted">root / パスワード</dt>
+            <dd class="m-0 flex items-center gap-1.5 text-sm">
+              {% include "secret.html" with key="db-root" url="/api/db/root/password" label="root のパスワード" has_password=db.root.has_password %}
+            </dd>
+          </div>
+          <div class="flex flex-col gap-1.5 px-3.5 py-3">
+            <dt class="flex items-center gap-1 text-xs text-muted">
+              <span class="font-mono">{{ db.user.user }}</span> / パスワード
+              <button type="button" class="icon-button ml-auto size-6 border-0" data-copy-text="{{ db.user.user }}" data-label="共用ユーザー名" aria-label="共用ユーザー名をコピー">{% include "icons/copy.html" %}</button>
+            </dt>
+            <dd class="m-0 flex items-center gap-1.5 text-sm">
+              {% include "secret.html" with key="db-user" url="/api/db/user/password" label="共用ユーザーのパスワード" has_password=db.user.has_password %}
+            </dd>
+          </div>
+        </dl>
+        {% if db.placeholder_keys %}
+        <p class="problem m-0 rounded bg-warn-bg px-3 py-2 text-xs text-warn">wp-main の .env の <span class="font-mono">{{ db.placeholder_keys|join:", " }}</span> が初期値（change-me）のままです。<code class="font-mono">uv run manage.py devenv install</code> または migration 6 でランダムな値に置き換わります。</p>
         {% endif %}
       </div>
-      <div role="cell">
-        {% if s.login_url %}<a class="button" href="{{ s.login_url }}" target="_blank" rel="noopener noreferrer">wp-admin を開く</a>{% endif %}
-      </div>
-      {% if s.missing %}
-      <div role="cell" class="problem span-all">{{ s.env_path }} に未設定の項目があります: <span class="mono">{{ s.missing|join:", " }}</span></div>
-      {% endif %}
-      {% endif %}
     </div>
-    {% endfor %}
-  </div>
+  </section>
 
-  <section class="history" aria-labelledby="history-title">
-    <h2 id="history-title">操作履歴</h2>
+  <section aria-labelledby="sites-title" class="flex flex-col gap-3">
+    <div class="flex flex-wrap items-center gap-3">
+      <h2 id="sites-title" class="m-0 text-[15px] font-bold">サイト</h2>
+      <span class="text-xs text-muted" data-site-count>{{ sites|length }} 件</span>
+      <span class="grow"></span>
+      <label for="site-filter" class="text-xs text-muted">サイト名で絞り込み</label>
+      <input id="site-filter" type="search" placeholder="例: wp1" autocomplete="off" class="h-[34px] w-56 rounded border border-control bg-surface px-3 font-mono text-[13px] text-text">
+    </div>
+    <div class="card overflow-x-auto text-[13px]">
+      <div role="table" aria-label="サイト一覧" class="min-w-[1000px]">
+        <div role="row" class="grid grid-cols-[100px_130px_minmax(0,1fr)_140px_170px_120px_80px] gap-4 bg-surface-head px-5 py-2.5 text-xs text-muted">
+          <div role="columnheader">サイト</div>
+          <div role="columnheader">状態</div>
+          <div role="columnheader">URL</div>
+          <div role="columnheader">ユーザー名</div>
+          <div role="columnheader">パスワード</div>
+          <div role="columnheader">ログイン</div>
+          <div role="columnheader">GitHub</div>
+        </div>
+        {% for s, p in rows %}
+        <div role="row" data-site-id="{{ s.id }}" class="grid grid-cols-[100px_130px_minmax(0,1fr)_140px_170px_120px_80px] items-center gap-4 px-5 py-3.5 border-t border-divider">
+          <div role="cell" class="flex flex-col gap-0.5">
+            <span class="font-mono text-[15px] font-medium">{{ s.id }}</span>
+            {% if s.version %}<span class="text-xs text-muted">{{ s.version }}</span>{% endif %}
+          </div>
+          <div role="cell" class="flex items-center gap-2">
+            <span class="state {{ p.state.state }} text-xs font-medium {% if p.state.state == 'running' %}text-ok{% elif p.state.state == 'partial' %}text-warn{% else %}text-muted{% endif %}"{% if p.state.detail %} title="{{ p.state.detail }}"{% endif %}>{% if p.busy %}処理中{% else %}{{ p.state.label }}{% endif %}</span>
+            <form method="post" action="/sites/{{ s.id }}/{{ p.action }}" data-power class="m-0">
+              {% csrf_token %}
+              <button type="submit" class="text-button"{% if p.disabled %} disabled{% endif %}>{% if p.action == "start" %}起動{% else %}停止{% endif %}</button>
+            </form>
+          </div>
+          {% if not s.env_found %}
+          <div role="cell" class="problem col-span-4 text-warn">
+            {{ s.env_path }} が見つかりません。<code class="font-mono">uv run manage.py devenv install</code> で生成してください。
+          </div>
+          {% else %}
+          <div role="cell" class="flex min-w-0 flex-col gap-0.5">
+            {% if s.url %}<a class="truncate font-mono" href="{{ s.url }}">{{ s.url_label }}</a>{% else %}<span class="text-muted">WP_HOME 未設定</span>{% endif %}
+            {% if s.debug_port %}<span class="font-mono text-xs text-muted">debug {{ s.debug_port }}</span>{% endif %}
+          </div>
+          <div role="cell" class="flex items-center gap-1.5">
+            {% if s.user %}
+            <span class="grow truncate font-mono">{{ s.user }}</span>
+            <button type="button" class="icon-button" data-copy-text="{{ s.user }}" data-label="{{ s.id }} のユーザー名" aria-label="{{ s.id }} のユーザー名をコピー">{% include "icons/copy.html" %}</button>
+            {% else %}<span class="text-muted">未設定</span>{% endif %}
+          </div>
+          <div role="cell" class="flex items-center gap-1.5">
+            {% with key="site-"|add:s.id url="/api/sites/"|add:s.id|add:"/password" label=s.id|add:" のパスワード" %}
+            {% include "secret.html" with has_password=s.has_password %}
+            {% endwith %}
+          </div>
+          <div role="cell">
+            {% if s.login_url %}<a class="inline-flex h-[34px] items-center justify-center rounded bg-accent px-3 text-xs font-medium text-on-accent no-underline hover:bg-accent-hover hover:text-on-accent" href="{{ s.login_url }}" target="_blank" rel="noopener noreferrer">WP ログイン</a>{% endif %}
+          </div>
+          {% endif %}
+          <div role="cell" class="{% if not s.env_found %}col-start-7{% endif %}">
+            {% if s.github_url %}<a class="icon-button size-[34px]" href="{{ s.github_url }}" target="_blank" rel="noopener noreferrer" aria-label="{{ s.id }} のリポジトリを GitHub で開く">{% include "icons/github.html" %}</a>{% endif %}
+          </div>
+          {% if s.missing %}
+          <div role="cell" class="problem col-span-full text-warn">{{ s.env_path }} に未設定の項目があります: <span class="font-mono">{{ s.missing|join:", " }}</span></div>
+          {% endif %}
+        </div>
+        {% endfor %}
+        <p data-site-empty hidden class="m-0 border-t border-divider px-5 py-5 text-muted">一致するサイトはありません。</p>
+      </div>
+    </div>
+  </section>
+
+  <section aria-labelledby="history-title" class="flex flex-col gap-3">
+    <h2 id="history-title" class="m-0 text-[15px] font-bold">操作履歴</h2>
     {% if operations %}
-    <div class="table" role="table" aria-label="操作履歴">
-      <div class="row head" role="row">
-        <div role="columnheader">終了日時</div>
-        <div role="columnheader">コマンド</div>
-        <div role="columnheader">結果</div>
-        <div role="columnheader">要約</div>
+    <div class="card overflow-x-auto text-[13px]">
+      <div role="table" aria-label="操作履歴" class="min-w-[720px]">
+        <div role="row" class="grid grid-cols-[180px_240px_60px_minmax(0,1fr)] gap-4 bg-surface-head px-5 py-2.5 text-xs text-muted">
+          <div role="columnheader">終了日時</div>
+          <div role="columnheader">コマンド</div>
+          <div role="columnheader">結果</div>
+          <div role="columnheader">要約</div>
+        </div>
+        {% for op in operations %}
+        <div role="row" class="history-row{% if not op.succeeded %} failed bg-warn-bg{% endif %} grid grid-cols-[180px_240px_60px_minmax(0,1fr)] gap-4 px-5 py-[11px] border-t border-divider">
+          <div role="cell" class="font-mono text-muted">{{ op.finished_at|date:"Y-m-d H:i:s" }}</div>
+          <div role="cell" class="font-mono">{{ op.command }}</div>
+          <div role="cell">{% if op.succeeded %}<span class="font-medium text-ok">成功</span>{% else %}<span class="font-bold text-warn">失敗</span>{% endif %}</div>
+          <div role="cell" class="font-mono break-words text-muted">{{ op.summary }}</div>
+        </div>
+        {% endfor %}
       </div>
-      {% for op in operations %}
-      <div class="row{% if not op.succeeded %} failed{% endif %}" role="row">
-        <div role="cell" class="mono sub">{{ op.finished_at|date:"Y-m-d H:i:s" }}</div>
-        <div role="cell" class="mono">{{ op.command }}</div>
-        <div role="cell">{% if op.succeeded %}<span class="result ok">成功</span>{% else %}<span class="result fail">失敗</span>{% endif %}</div>
-        <div role="cell" class="mono summary">{{ op.summary }}</div>
-      </div>
-      {% endfor %}
     </div>
     {% else %}
-    <p class="unset">操作履歴はまだありません。<code>uv run manage.py devenv</code> の install・migrate・check-health や、サイトの起動・停止を行うと記録されます。</p>
+    <p class="m-0 text-muted">操作履歴はまだありません。<code class="font-mono">uv run manage.py devenv</code> の install・migrate・check-health や、サイトの起動・停止を行うと記録されます。</p>
     {% endif %}
   </section>
-  <div class="toast" role="status" aria-live="polite" id="toast"></div>
 </main>
-<script src="{% static 'dashboard.js' %}"></script>
+
+<div id="toast" role="status" aria-live="polite" class="pointer-events-none fixed bottom-6 left-1/2 -translate-x-1/2 rounded bg-text px-4 py-2 text-sm text-bg empty:hidden"></div>
+
+{% if can_shutdown %}
+<dialog id="shutdown-dialog" aria-labelledby="shutdown-title" data-csrf="{{ csrf_token }}" class="m-auto w-[440px] max-w-[calc(100vw-32px)] rounded-lg border-0 bg-surface p-6 text-text shadow-xl">
+  <div class="flex flex-col gap-4">
+    <h2 id="shutdown-title" class="m-0 text-[17px] font-bold">開発セッションを終了しますか？</h2>
+    <p class="m-0 text-[13px] leading-relaxed text-ink">起動中のサイトと共有インフラ（wp-mysql・wp-caddy）をすべて停止します。このダッシュボードも止まるため、このページは応答しなくなります。</p>
+    <p class="m-0 font-mono text-xs text-muted">uv run manage.py serve down</p>
+    <div class="flex justify-end gap-2">
+      <button type="button" id="shutdown-cancel" class="h-[38px] rounded border border-control bg-surface px-4 text-[13px] text-text">キャンセル</button>
+      <button type="button" id="shutdown-confirm" class="h-[38px] rounded border-0 bg-danger px-4 text-[13px] font-bold text-on-danger">終了する</button>
+    </div>
+  </div>
+</dialog>
+<div id="session-ended" hidden class="fixed inset-0 flex flex-col items-center justify-center gap-2.5 bg-bg px-4 text-center">
+  <p class="m-0 text-[17px] font-bold">開発セッションを終了しています</p>
+  <p class="m-0 text-[13px] text-muted">再開するには端末で <code class="font-mono">uv run manage.py serve up</code> を実行してください。止まらないときは <code class="font-mono">uv run manage.py serve logs serve</code> で確認してください。</p>
+</div>
+{% endif %}
+<script type="module" src="{% static 'dist/dashboard.js' %}"></script>
 </body>
 </html>

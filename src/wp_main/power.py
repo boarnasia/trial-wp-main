@@ -11,8 +11,8 @@ from .docker import compose
 from .runner import DevEnvError, Runner
 from .sites import read_env
 
-RUNNING, STOPPED, PARTIAL, UNKNOWN = "running", "stopped", "partial", "unknown"
-LABELS = {RUNNING: "起動中", STOPPED: "停止中", PARTIAL: "一部停止", UNKNOWN: "取得不可"}
+RUNNING, STOPPED, PARTIAL, STARTING, UNKNOWN = "running", "stopped", "partial", "starting", "unknown"
+LABELS = {RUNNING: "起動中", STOPPED: "停止中", PARTIAL: "一部停止", STARTING: "処理中", UNKNOWN: "取得不可"}
 START_TIMEOUT_SECONDS = 120
 SCHEMA_NAME = re.compile(r"^[A-Za-z0-9_]+$")
 
@@ -61,6 +61,16 @@ def inspect(runner: Runner, site: Site) -> SiteState:
     if not is_healthy(items.get(MYSQL_CONTAINER)):
         return SiteState(PARTIAL, f"{MYSQL_CONTAINER} が healthy ではありません")
     return SiteState(RUNNING)
+
+
+def inspect_mysql(runner: Runner) -> SiteState:
+    items = inspect_containers(runner, [MYSQL_CONTAINER])
+    if items is None:
+        return SiteState(UNKNOWN, "Docker に接続できません")
+    item = items.get(MYSQL_CONTAINER)
+    if not is_running(item):
+        return SiteState(STOPPED)
+    return SiteState(RUNNING) if is_healthy(item) else SiteState(STARTING, f"{MYSQL_CONTAINER} が healthy ではありません")
 
 
 def running_sites(runner: Runner) -> list[Site]:

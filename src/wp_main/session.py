@@ -3,6 +3,8 @@ import fcntl
 import json
 import os
 import signal
+import subprocess
+import sys
 import threading
 import time
 from collections.abc import Callable, Iterator
@@ -14,7 +16,7 @@ from pathlib import Path
 import typer
 
 from . import operations, power, processes
-from .config import DASHBOARD_DOMAIN, LOG_DIR, SESSION_FILE, SITES, Site
+from .config import DASHBOARD_DOMAIN, LOG_DIR, MAIN_DIR, SESSION_FILE, SITES, Site
 from .runner import DevEnvError, Runner
 
 ALL = "all"
@@ -181,6 +183,18 @@ def rotate_logs(log_dir: Path | None = None) -> None:
     log_dir.mkdir(parents=True, exist_ok=True)
     for log in log_dir.glob("*.log"):
         log.replace(log.with_name(f"{log.name}.1"))
+
+
+def spawn_down(root: Path, log_dir: Path | None = None) -> subprocess.Popen:
+    """ダッシュボードから serve down を始める。serve down はダッシュボード自身も止めるため、切り離して動かす。"""
+    log_dir = log_dir or LOG_DIR
+    log_dir.mkdir(parents=True, exist_ok=True)
+    command = [sys.executable, str(MAIN_DIR / "manage.py"), "serve", "down", "--root", str(root)]
+    with open(log_dir / SERVE_LOG, "a") as log:
+        return subprocess.Popen(
+            command, cwd=MAIN_DIR, stdin=subprocess.DEVNULL, stdout=log, stderr=subprocess.STDOUT,
+            start_new_session=True,
+        )
 
 
 def tee(path: Path) -> Callable[[str], None]:
