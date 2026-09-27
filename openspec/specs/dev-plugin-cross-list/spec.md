@@ -1,7 +1,7 @@
 # dev-plugin-cross-list Specification
 
 ## Purpose
-TBD - created by archiving change plugin-cross-list. Update Purpose after archive.
+ダッシュボードの WordPress メニューから、全サイトのプラグインとその版、プラグイン対応状況を 1 つの表で見比べられるようにする。プラグイン情報はサイトを起動せずに WP-CLI で取得し、対応状況は wordpress.org の情報から判定する。
 
 ## Requirements
 
