@@ -1,5 +1,5 @@
 from django.contrib import messages
-from django.http import Http404, HttpResponseForbidden, JsonResponse
+from django.http import Http404, JsonResponse
 from django.shortcuts import redirect
 from django.template.response import TemplateResponse
 from django.utils import timezone
@@ -9,12 +9,10 @@ from ninja import NinjaAPI
 from .. import operations, power
 from ..config import SITES
 from ..runner import DevEnvError, Runner
-from ..sites import proxy_is_public
 from .data import find_password, load_sites, sites_root
 from .models import Operation
 
 ACTIONS = {"start": (power.start, "起動"), "stop": (power.stop, "停止")}
-PUBLIC_REASON = "プロキシを LAN に公開している（PROXY_BIND_ADDRESS）ため、起動・停止は無効です"
 
 NO_STORE = {"Cache-Control": "no-store"}
 # FastAPI 版と同じく日本語をエスケープせずに返す
@@ -27,7 +25,7 @@ RECENT_OPERATIONS = 20
 # curl -I などの HEAD による疎通確認で 405 にならないようにする
 @require_safe
 def index(request):
-    runner, root, public = Runner(), sites_root(), proxy_is_public()
+    runner, root = Runner(), sites_root()
     rows = []
     for view, site in zip(load_sites(root), SITES):
         state = power.inspect(runner, site)
@@ -35,13 +33,12 @@ def index(request):
         rows.append((view, {
             "state": state,
             "busy": busy,
-            "disabled": public or busy or state.state == power.UNKNOWN,
+            "disabled": busy or state.state == power.UNKNOWN,
             "action": "start" if state.state == power.STOPPED else "stop",
         }))
     context = {
         "rows": rows,
         "sites": [view for view, _ in rows],
-        "public_reason": PUBLIC_REASON if public else "",
         "operations": Operation.objects.all()[:RECENT_OPERATIONS],
     }
     return TemplateResponse(request, "index.html", context, headers=NO_STORE)
@@ -60,8 +57,6 @@ def site_action(request, site_id: str, action: str):
     site = next((site for site in SITES if site.id == site_id), None)
     if site is None or action not in ACTIONS:
         raise Http404
-    if proxy_is_public():
-        return HttpResponseForbidden(PUBLIC_REASON)
     run, label = ACTIONS[action]
     started = timezone.now()
     try:
