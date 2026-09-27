@@ -55,4 +55,4 @@ def up(ctx) -> None:
         runner.run(["docker", "image", "rm", LEGACY_DASHBOARD_IMAGE])
     # Caddy の転送先と環境変数が変わるので、起動中なら作り直して新しい Caddyfile を読ませる
     rebuild_if_running(ctx)
-    typer.secho("  開発セッションは別の端末で始めてください: uv run manage.py serve", fg=typer.colors.CYAN)
+    typer.secho("  開発セッションは次のコマンドで始めてください: uv run manage.py serve up", fg=typer.colors.CYAN)

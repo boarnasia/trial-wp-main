@@ -35,6 +35,7 @@ class World:
         self.keychain = f"SHA-1 hash: {SHA1}\n"
         self.cert_trusted = True
         self.dashboard_problem: str | None = None
+        self.in_session = True
         self.pages = {
             "https://local.wp1.yamashita109.com/": (200, "", page("7.1.2")),
             "https://local.wp2.yamashita109.com/": (200, "", page("6.7.2")),
@@ -91,7 +92,10 @@ def ctx_factory(tmp_path: Path, fake_runner, world, monkeypatch):
 
     def make(resolver=lambda domain: ["127.0.0.1"]):
         runner = fake_runner(world.respond)
-        return HealthContext(runner, tmp_path, main_dir=main, resolver=resolver, probe=world.probe)
+        return HealthContext(
+            runner, tmp_path, main_dir=main, resolver=resolver, probe=world.probe,
+            session_check=lambda: world.in_session,
+        )
 
     return make
 
@@ -284,15 +288,27 @@ def test_version_item_not_installed(ctx_factory, tmp_path):
     assert statuses(ctx)["config.version"] == FAIL
 
 
-def test_stopped_dashboard_only_affects_dashboard(ctx_factory, world):
+def test_outside_session_skips_everything_that_runs(ctx_factory, world):
+    world.in_session = False
+    world.containers = []
     world.dashboard_problem = "Connection refused"
     outcomes = {o.id: o for o in health.run_health(ctx_factory())}
-    assert outcomes["host.dashboard"].status == SKIP
-    assert "uv run manage.py serve" in outcomes["host.dashboard"].message
-    assert outcomes["http.https.dashboard"].status == SKIP
-    assert outcomes["http.redirect.dashboard"].status == OK
-    assert outcomes["http.https.wp1"].status == OK
+    for check_id in ("host.dashboard", "container.wp-caddy", "container.wp-mysql"):
+        assert outcomes[check_id].status == SKIP
+        assert "uv run manage.py serve up" in outcomes[check_id].message
+    for check_id in ("host.ca", "site.wp1", "http.https.wp1", "http.https.dashboard"):
+        assert outcomes[check_id].status == SKIP
+    assert outcomes["host.dns.wp1"].status == OK and outcomes["config.env.main"].status == OK
     assert not any(o.status == FAIL for o in outcomes.values())
+
+
+def test_unresponsive_dashboard_in_session_fails(ctx_factory, world):
+    world.dashboard_problem = "Connection refused"
+    outcomes = {o.id: o for o in health.run_health(ctx_factory())}
+    assert outcomes["host.dashboard"].status == FAIL
+    assert "serve logs dashboard" in outcomes["host.dashboard"].hint
+    assert outcomes["http.https.dashboard"].status == SKIP
+    assert outcomes["http.https.wp1"].status == OK
 
 
 def test_dashboard_port_from_env(ctx_factory, world, tmp_path):

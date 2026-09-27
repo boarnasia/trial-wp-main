@@ -8,10 +8,12 @@ wp-main はメインコントローラーで、Caddy リバースプロキシ（
 | wp1 | `../wp-wp1`（trial-wp-wp1） | https://local.wp1.yamashita109.com/ | `wordpress:7.1-apache` | 127.0.0.1:8081 |
 | wp2 | `../wp-wp2`（trial-wp-wp2） | https://local.wp2.yamashita109.com/ | `wordpress:6.7-apache` | 127.0.0.1:8082 |
 
-開発は開発セッションとして始める。`serve` を動かしている間だけ、指定したサイトとダッシュボードが動く。
+開発は開発セッションとして始める。開発セッションの間だけ、共有インフラ・指定したサイト・ダッシュボードが動く。
 
 ```bash
-uv run manage.py serve --site=wp1,wp2   # Ctrl-C で終了すると、動いているサイトをすべて止める
+uv run manage.py serve up --site=wp1,wp2 --detach   # 始める（端末から切り離す）
+uv run manage.py serve logs -f                      # ログを追う
+uv run manage.py serve down                         # 終える（共有インフラも止める。データは残る）
 ```
 
 ダッシュボード: https://local.wp-main.yamashita109.com/ （両サイトへのリンク、ログインリンク、管理者の ID/PW、サイトの起動・停止、操作履歴）
@@ -24,9 +26,9 @@ uv run manage.py serve --site=wp1,wp2   # Ctrl-C で終了すると、動いて�
         └── wp-global-net（外部ネットワーク）で Caddy と WordPress を接続。共有 MySQL（wp-mysql）は WordPress とだけ共有する wp-db ネットワーク
 ```
 
-コンテナで動かすのは Caddy と WordPress・MySQL などの実行環境だけ。ダッシュボードのような開発用の道具は、ホストのプロセスとして `serve` がまとめて起動する（Caddy は `host.docker.internal` 経由で転送する）。
+コンテナで動かすのは Caddy と WordPress・MySQL などの実行環境だけ。ダッシュボードのような開発用の道具は、ホストのプロセスとして `serve up` がまとめて起動する（Caddy は `host.docker.internal` 経由で転送する）。
 
-共有インフラ（Caddy・MySQL）は `restart: unless-stopped` で動き続ける。サイトの WordPress は再起動の方針を持たず、開発セッションの外では止まっているのが正常。
+共有インフラ（Caddy・MySQL）もサイトも、開発セッションの外では止まっているのが正常（[ADR 0002](docs/adr/0002-serve-daemonizes-itself.md)）。
 
 ## 前提
 
@@ -37,7 +39,9 @@ uv run manage.py serve --site=wp1,wp2   # Ctrl-C で終了すると、動いて�
 ## CLI
 
 ```bash
-uv run manage.py serve --site=wp1,wp2        # 開発セッションを始める（前面で動く。Ctrl-C で終了）
+uv run manage.py serve up --site=wp1,wp2     # 開発セッションを始める（前面で動く。Ctrl-C で終了。--detach で切り離す）
+uv run manage.py serve down                   # 開発セッションを終える
+uv run manage.py serve logs -f                # 開発セッションのログを追う
 uv run manage.py help devenv                  # 環境の整備のコマンド一覧
 uv run manage.py devenv version
 uv run manage.py devenv check-health          # 環境が正常か確認（読み取りのみ）
@@ -47,7 +51,7 @@ uv run manage.py devenv install --dry-run     # 実行内容の確認だけ
 uv run manage.py devenv uninstall             # 確認後にすべて削除（--yes で確認を省略）
 ```
 
-CLI はダッシュボードと同じ Django プロジェクトの management command（`serve` と `devenv`）として動く。以前の `uv run cli dev-env:<name>` と `devenv serve` は廃止し、実行すると新しいコマンドを案内して終了する。`serve` は Django の `runserver` とは別物。
+CLI はダッシュボードと同じ Django プロジェクトの management command（`serve` と `devenv`）として動く。以前の `uv run cli dev-env:<name>`・`devenv serve`・サブコマンドのない `serve` は廃止し、実行すると新しいコマンドを案内して終了する。`serve` は Django の `runserver` とは別物。
 
 `devenv install` が行うこと:
 
@@ -57,32 +61,42 @@ CLI はダッシュボードと同じ Django プロジェクトの management co
 4. `/etc/hosts` に `# >>> wp-dev-env >>>` ブロックを追加する（sudo）。書き換え前の内容は `/etc/hosts.wp-dev-env.bak` に保存する。マーカーの対応が崩れている場合は書き換えずに止まる
 5. 共有インフラ（Caddy・MySQL）を起動し、各サイトを 1 つずつ起動して WordPress を初期セットアップし、終わったらサイトを止める
 6. Caddy の内部 CA を System キーチェーンに信頼済みとして登録する（sudo）。`--skip-trust` で省略
-7. ダッシュボードの DB（`.local/db.sqlite3`）を最新のスキーマにし、最後に `serve --site=all` の実行方法を表示する
+7. 共有インフラを止める（開発セッション中に実行した場合は止めない）
+8. ダッシュボードの DB（`.local/db.sqlite3`）を最新のスキーマにし、最後に `serve up --site=all` の実行方法を表示する
 
 主なオプション: `--root <dir>`（既定は wp-main の親）、`--no-start`、`--skip-trust`。
 
-`devenv uninstall` は、コンテナ・ボリューム（共有 MySQL の `wp-mysql-data` を含む）・イメージ・ネットワーク・hosts ブロック・CA・サイトディレクトリ・`.local/` の状態ファイルとダッシュボードの DB を削除する。`serve` が動いていれば、先に止めるよう表示する。サイトに未コミットや未 push の変更があれば警告する。`/etc/hosts.wp-dev-env.bak` は復旧用に残し、削除コマンド（`sudo rm /etc/hosts.wp-dev-env.bak`）を最後に案内する。
+`devenv uninstall` は、コンテナ・ボリューム（共有 MySQL の `wp-mysql-data` を含む）・イメージ・ネットワーク・hosts ブロック・CA・サイトディレクトリ・`.local/` の状態ファイルとダッシュボードの DB を削除する。開発セッションが動いていれば、先に `serve down` で止めるよう表示する。サイトに未コミットや未 push の変更があれば警告する。`/etc/hosts.wp-dev-env.bak` は復旧用に残し、削除コマンド（`sudo rm /etc/hosts.wp-dev-env.bak`）を最後に案内する。
 
 管理者のユーザー名とパスワードは各サイトの `.env`（`WP_ADMIN_USER` / `WP_ADMIN_PASSWORD`）にある。
 
 ## 開発セッション（serve）
 
 ```bash
-uv run manage.py serve --site=wp1          # wp1 だけ
-uv run manage.py serve --site=wp1,wp2      # 複数（カンマ区切り）
-uv run manage.py serve --site=all          # 全サイト
-uv run manage.py serve                     # サイトは起動しない（共有インフラとダッシュボードだけ）
+uv run manage.py serve up --site=wp1          # wp1 だけ（前面で動く。Ctrl-C で終了）
+uv run manage.py serve up --site=wp1,wp2      # 複数（カンマ区切り）
+uv run manage.py serve up --site=all          # 全サイト
+uv run manage.py serve up                     # サイトは起動しない（共有インフラとダッシュボードだけ）
+uv run manage.py serve up --site=all --detach # 端末から切り離す（-d でもよい）
+uv run manage.py serve down                   # 終える
+uv run manage.py serve logs                   # ログを表示する（serve・dashboard・caddy・mysql・wp1・wp2 で絞れる）
+uv run manage.py serve logs -f --tail 50 dashboard wp1
 ```
 
-1. `--site` を確かめる（存在しない ID があれば何も起動せず、指定できる ID を表示して終わる）
-2. ダッシュボードのポートが空いているか確かめ、django:migration を適用する
-3. 共有インフラ（Caddy・MySQL）を起動する。起動できなければ、ここで失敗して終わる
-4. 指定したサイトを起動する。起動に失敗したサイトは表示と操作履歴に残し、残りは続ける
-5. ホストのプロセス（ダッシュボード）を起動し、前面で動き続ける
-6. Ctrl-C（またはプロセスの異常終了）で終わるとき、その時点で動いているサイトをすべて止める。セッション中にダッシュボードから起動したサイトも止める。共有インフラは止めない
+`serve up` が行うこと:
 
-- サイトの停止中にもう一度 Ctrl-C を押すと、停止を中断して終わる。残ったサイトは次の `serve` の終了時に止まる
-- serve が強制終了されて（端末を閉じたなど）サイトが残った場合も、次の `serve` がそのまま引き継ぐ
+1. `--site` を確かめる（存在しない ID があれば何も起動せず、指定できる ID を表示して終わる）
+2. 開発セッションが既に動いていれば、それを終える（共有インフラは止めずに使い回す）
+3. ダッシュボードのポートが空いているか確かめ、ログを新しくする（直前のログは `.local/logs/*.log.1` に残る）
+4. django:migration を適用し、共有インフラ（Caddy・MySQL）を起動する。起動できなければ、ここで失敗して終わる
+5. 指定したサイトを起動する。起動に失敗したサイトは表示と操作履歴に残し、残りは続ける
+6. ホストのプロセス（ダッシュボード）を起動する。`--detach` のときは、ダッシュボードが応答するのを確かめてから戻る
+
+開発セッションは、`serve down`、前面の Ctrl-C、ホストのプロセスの異常終了のいずれかで終わる。終わるときは、ダッシュボード・その時点で動いているサイト（セッション中にダッシュボードから起動したものも含む）・共有インフラをすべて止める。コンテナは削除するが、ボリューム（共有 MySQL のデータなど）は残る。
+
+- 開発セッションの PID は `.local/serve.pid`、ホストのプロセスのログは `.local/logs/` にある
+- 監督するプロセスが強制終了されてコンテナが残った場合も、`serve down` で片付けられる（開発セッションがなくても、残ったサイトと共有インフラを止める）
+- 以前の版から更新した環境で共有インフラが動いたまま残っている場合も、`serve down` で止まる
 
 ## ダッシュボード
 
@@ -205,9 +219,9 @@ wp-main と wp-wp1 / wp-wp2 を更新するときは、wp-main を先に pull �
 ## 日常の操作（wp-main で実行）
 
 ```bash
-uv run manage.py serve --site=wp1    # 開発を始める（Ctrl-C で終了）
+uv run manage.py serve up --site=wp1 -d   # 開発を始める（終えるときは serve down）
 docker compose ps
-docker compose logs -f caddy mysql wp1-wordpress
+uv run manage.py serve logs -f caddy mysql wp1
 docker compose run --rm wp1-cli wp plugin list   # WP-CLI（サイトの起動中に）
 ```
 

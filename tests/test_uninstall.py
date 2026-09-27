@@ -69,7 +69,7 @@ def test_db_and_legacy_dashboard_removed(tmp_path, fake_runner, monkeypatch):
 def test_running_serve_is_warned(tmp_path, fake_runner, monkeypatch, capsys):
     monkeypatch.setattr(typer, "confirm", lambda *a, **k: False)
     monkeypatch.setattr(devenv, "load_state", lambda: {})
-    monkeypatch.setattr(devenv, "dashboard_running", lambda: True)
+    monkeypatch.setattr(devenv, "session_running", lambda: True)
     with pytest.raises(typer.Exit):
         devenv.uninstall(fake_runner(), tmp_path, assume_yes=False)
-    assert "uv run manage.py serve が動いています" in capsys.readouterr().out
+    assert "uv run manage.py serve down" in capsys.readouterr().out

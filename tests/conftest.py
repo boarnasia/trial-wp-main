@@ -74,5 +74,17 @@ def prepared_db(monkeypatch) -> list[bool]:
 
     prepared: list[bool] = []
     monkeypatch.setattr(devenv, "prepare_db", lambda runner: prepared.append(runner.dry_run))
-    monkeypatch.setattr(devenv, "dashboard_running", lambda: False)
+    monkeypatch.setattr(devenv, "session_running", lambda: False)
     return prepared
+
+
+@pytest.fixture(autouse=True)
+def isolated_session(tmp_path_factory, monkeypatch):
+    """テストが実際の開発セッションの記録とログを読み書きしないよう、置き場所を一時ディレクトリにする。"""
+    from wp_main import logs, session
+
+    local = tmp_path_factory.mktemp("local")
+    monkeypatch.setattr(session, "SESSION_FILE", local / "serve.pid")
+    monkeypatch.setattr(session, "LOG_DIR", local / "logs")
+    monkeypatch.setattr(logs, "LOG_DIR", local / "logs")
+    return local

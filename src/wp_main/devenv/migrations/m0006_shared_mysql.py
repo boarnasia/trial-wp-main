@@ -1,6 +1,6 @@
 import typer
 
-from ... import power
+from ... import power, session
 from ...config import MYSQL_CONTAINER, MYSQL_IMAGE, SITES, Site
 from ...docker import wait_for
 from ...runner import DevEnvError
@@ -118,8 +118,14 @@ def up(ctx) -> None:
             if runner.ok(["docker", "container", "inspect", name]):
                 runner.run(["docker", "rm", "-f", name])
 
+    # 共有インフラは開発セッションの外では動かさないので、セッション中でなければ最後に止める
+    in_session = session.is_running()
     power.start_infra(runner, ctx.main_dir)
-    root_password = read_env(ctx.main_dir).get("DB_ROOT_PASSWORD", "")
-    for site in SITES:
-        migrate_site(ctx, site, root_password)
-    typer.secho("  開発セッションは別の端末で始めてください: uv run manage.py serve --site=all", fg=typer.colors.CYAN)
+    try:
+        root_password = read_env(ctx.main_dir).get("DB_ROOT_PASSWORD", "")
+        for site in SITES:
+            migrate_site(ctx, site, root_password)
+    finally:
+        if not in_session:
+            power.stop_infra(runner, ctx.main_dir)
+    typer.secho("  開発セッションは次のコマンドで始めてください: uv run manage.py serve up --site=all", fg=typer.colors.CYAN)

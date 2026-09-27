@@ -157,7 +157,32 @@ def test_install_prepares_db_and_suggests_serve(env, fake_runner, monkeypatch, c
     devenv.install(runner, root, start=True, trust=True)
     assert prepared_db == [False]
     assert ["docker", "compose", "up", "-d", "--wait", "--wait-timeout", "120", "caddy", "mysql"] in runner.calls
-    assert "uv run manage.py serve --site=all" in capsys.readouterr().out
+    assert "uv run manage.py serve up --site=all" in capsys.readouterr().out
+    # 開発セッションの外なので、CA を登録した後に共有インフラを止める
+    assert ["docker", "compose", "down", "--remove-orphans"] in runner.calls
+
+
+def test_install_in_session_keeps_infra(env, fake_runner, monkeypatch):
+    root, _ = env
+    monkeypatch.setattr(devenv, "check_ports", lambda runner, ports: None)
+    monkeypatch.setattr(devenv, "session_running", lambda: True)
+    runner = fake_runner(responder())
+    devenv.install(runner, root, start=True, trust=True)
+    assert not runner.mutating(["docker", "compose", "down"])
+
+
+def test_install_stops_infra_even_when_setup_fails(env, fake_runner, monkeypatch):
+    root, _ = env
+    monkeypatch.setattr(devenv, "check_ports", lambda runner, ports: None)
+
+    def broken(runner, site, root):
+        raise DevEnvError("wp core install failed")
+
+    monkeypatch.setattr(devenv, "install_wordpress", broken)
+    runner = fake_runner(responder())
+    with pytest.raises(DevEnvError):
+        devenv.install(runner, root, start=True, trust=True)
+    assert ["docker", "compose", "down", "--remove-orphans"] in runner.calls
 
 
 def test_sites_run_only_during_setup(env, fake_runner, monkeypatch):

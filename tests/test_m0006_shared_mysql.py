@@ -125,3 +125,21 @@ def test_sites_stay_stopped_after_migration(fake_runner, dirs):
     runner = run(fake_runner, dirs)
     ups = runner.mutating(["docker", "compose", "up"])
     assert ups == [["docker", "compose", "up", "-d", "--wait", "--wait-timeout", "120", "caddy", "mysql"]]
+    # 開発セッションの外なので、起動した共有インフラも止める
+    assert runner.mutating(["docker", "compose", "down"]) == [["docker", "compose", "down", "--remove-orphans"]]
+
+
+def test_infra_stays_in_session(fake_runner, dirs, monkeypatch):
+    from wp_main import session
+
+    monkeypatch.setattr(session, "is_running", lambda path=None: True)
+    runner = run(fake_runner, dirs)
+    assert not runner.mutating(["docker", "compose", "down"])
+
+
+def test_infra_stops_even_when_migration_fails(fake_runner, dirs):
+    root, main = dirs
+    runner = fake_runner(legacy(copied={"wp_posts": 2, "wp_options": 10}))
+    with pytest.raises(DevEnvError):
+        m0006_shared_mysql.up(MigrationContext(runner, root, main, ()))
+    assert runner.mutating(["docker", "compose", "down"])

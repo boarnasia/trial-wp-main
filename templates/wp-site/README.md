@@ -9,7 +9,7 @@
 wp-main から開発セッションとして起動する（`uv run manage.py devenv install` 済みであること）。
 
 ```bash
-cd ../wp-main && uv run manage.py serve --site={{SITE_ID}}   # Ctrl-C で終了し、サイトも止まる
+cd ../wp-main && uv run manage.py serve up --site={{SITE_ID}} --detach   # 終えるときは uv run manage.py serve down
 ```
 
 デバッグ用ポートで直接確認する場合（ホスト名とポートが `WP_HOME` と違うため、ヘッダーを付ける）:
