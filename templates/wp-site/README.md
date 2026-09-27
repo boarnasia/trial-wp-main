@@ -2,36 +2,34 @@
 
 {{TITLE}} の開発用リポジトリ。公開 URL は https://{{DOMAIN}}/ （wp-main の Caddy 経由）。
 
+このリポジトリが持つのは、サイトの中身（`wp-content/`）とサイト設定（`.env`）だけ。コンテナの定義は wp-main にあり、このディレクトリで `docker compose` は使わない。
+
 ## 起動
 
-通常は wp-main から一括起動する（`uv run cli dev-env:install` 済みであること）。
+wp-main から開発セッションとして起動する（`uv run manage.py devenv install` 済みであること）。
 
 ```bash
-cd ../wp-main && docker compose up -d
+cd ../wp-main && uv run manage.py serve --site={{SITE_ID}}   # Ctrl-C で終了し、サイトも止まる
 ```
 
-単体で起動する場合:
+デバッグ用ポートで直接確認する場合（ホスト名とポートが `WP_HOME` と違うため、ヘッダーを付ける）:
 
 ```bash
-docker network inspect wp-global-net >/dev/null 2>&1 || docker network create wp-global-net
-cp -n .env.example .env   # 初回のみ。change-me を書き換える
-docker compose up -d
-# デバッグ用ポートはホスト名とポートが WP_HOME と違うため、そのままだと WordPress がポートを外した URL へ 301 を返す
 curl -s -o /dev/null -w '%{http_code}\n' -H 'Host: {{DOMAIN}}' -H 'X-Forwarded-Proto: https' http://127.0.0.1:{{DEBUG_PORT}}/   # 200 なら正常
 ```
-
-単体起動と一括起動はコンテナ名が同じなので同時には動かない。切り替えるときは片方を `docker compose down` する。
 
 ## 構成
 
 | パス | 内容 |
 | --- | --- |
-| `docker-compose.yml` | `{{SITE_ID}}-wordpress` / `{{SITE_ID}}-db` / `{{SITE_ID}}-cli`（profile: cli） |
+| `.env` | サイト設定（WordPress のイメージ、デバッグ用ポート、URL、schema 名、管理者）。`.env.example` から生成する |
 | `config/wp-config-proxy.php` | `X-Forwarded-Proto` による HTTPS 判定と `WP_HOME` / `WP_SITEURL` |
 | `wp-content/` | テーマ・プラグイン（コンテナにバインドマウント） |
 
-WP-CLI:
+DB は wp-main の共有 MySQL の `WP_DB_NAME` の schema（既定 `{{SITE_ID}}`）。ホストからは `127.0.0.1:3306` で接続できる（ユーザーとパスワードは wp-main の `.env`）。
+
+WP-CLI（サイトの起動中に wp-main で実行する）:
 
 ```bash
-docker compose run --rm {{SITE_ID}}-cli wp plugin list
+cd ../wp-main && docker compose run --rm {{SITE_ID}}-cli wp plugin list
 ```

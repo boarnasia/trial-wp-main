@@ -1,7 +1,8 @@
 import pytest
 from django.test import Client
 
-from wp_main.dashboard import power, views
+from wp_main import power
+from wp_main.dashboard import views
 from wp_main.dashboard.models import Operation
 from wp_main.runner import DevEnvError
 
@@ -11,7 +12,7 @@ def calls(monkeypatch, tmp_path):
     """Docker を操作せず、呼ばれた操作を記録する。"""
     done: list[tuple[str, str]] = []
     monkeypatch.setattr(power, "LOCK_DIR", tmp_path / "locks")
-    monkeypatch.setattr(power, "inspect", lambda runner, site, root: power.SiteState(power.RUNNING, root))
+    monkeypatch.setattr(power, "inspect", lambda runner, site: power.SiteState(power.RUNNING))
     monkeypatch.setattr(views, "proxy_is_public", lambda: False)
     monkeypatch.setattr(views, "ACTIONS", {
         "start": (lambda runner, site, root: done.append(("start", site.id)), "起動"),
@@ -58,7 +59,7 @@ def test_stop_records_operation(calls, recorded_operations):
     assert response.status_code == 302 and response["Location"] == "/"
     assert calls == [("stop", "wp1")]
     [entry] = recorded_operations
-    assert (entry["command"], entry["options"], entry["succeeded"]) == ("site-stop", {"site": "wp1"}, True)
+    assert (entry["command"], entry["options"], entry["succeeded"]) == ("site-stop", {"site": "wp1", "via": "dashboard"}, True)
     assert "wp1 を停止しました" in client.get("/").content.decode()
 
 
@@ -94,7 +95,7 @@ def test_busy_site_is_rejected(calls, recorded_operations):
     (power.RUNNING, "起動中", "停止"), (power.STOPPED, "停止中", "起動"), (power.PARTIAL, "一部停止", "停止"),
 ])
 def test_buttons_follow_state(calls, monkeypatch, state, label, button):
-    monkeypatch.setattr(power, "inspect", lambda runner, site, root: power.SiteState(state, root))
+    monkeypatch.setattr(power, "inspect", lambda runner, site: power.SiteState(state))
     page = Client().get("/").content.decode()
     assert f">{label}<" in page and f">{button}</button>" in page
 
@@ -102,7 +103,7 @@ def test_buttons_follow_state(calls, monkeypatch, state, label, button):
 @pytest.mark.django_db
 def test_docker_down_still_renders(calls, monkeypatch):
     monkeypatch.setattr(power, "inspect",
-                        lambda runner, site, root: power.SiteState(power.UNKNOWN, root, "Cannot connect"))
+                        lambda runner, site: power.SiteState(power.UNKNOWN, "Cannot connect"))
     response = Client().get("/")
     assert response.status_code == 200
     page = response.content.decode()

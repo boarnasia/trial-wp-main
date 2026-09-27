@@ -25,9 +25,10 @@ def sites_dir(tmp_path, monkeypatch):
 @pytest.fixture(autouse=True)
 def docker_state(monkeypatch, tmp_path):
     """実際の Docker に問い合わせないよう、全サイトが起動中として扱う。"""
-    from wp_main.dashboard import power, views
+    from wp_main import power
+    from wp_main.dashboard import views
 
-    monkeypatch.setattr(power, "inspect", lambda runner, site, root: power.SiteState(power.RUNNING, root))
+    monkeypatch.setattr(power, "inspect", lambda runner, site: power.SiteState(power.RUNNING))
     monkeypatch.setattr(power, "LOCK_DIR", tmp_path / "locks")
     monkeypatch.setattr(views, "proxy_is_public", lambda: False)
 

@@ -1,3 +1,4 @@
+import os
 import shlex
 import subprocess
 from dataclasses import dataclass
@@ -22,6 +23,7 @@ class Runner:
         check: bool = True,
         capture: bool = False,
         mutate: bool = True,
+        env: dict[str, str] | None = None,
     ) -> subprocess.CompletedProcess[str]:
         """mutate=False の読み取り系コマンドは dry-run でも実行し、後続の判定に使う。"""
         location = f" (in {cwd})" if cwd else ""
@@ -35,6 +37,7 @@ class Runner:
             cwd=cwd,
             text=True,
             capture_output=capture or not mutate,
+            env={**os.environ, **env} if env else None,
         )
         if check and result.returncode != 0:
             detail = (result.stderr or "").strip().splitlines()

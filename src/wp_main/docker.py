@@ -3,12 +3,21 @@ import time
 from collections.abc import Callable
 from pathlib import Path
 
-from .config import MAIN_DIR, NETWORK
+from .config import MAIN_DIR, NETWORK, SITES
 from .runner import DevEnvError, Runner
 
 
+def compose_env(main_dir: Path) -> dict[str, str]:
+    # include の env_file はファイルがないとプロジェクト全体を読めなくするため、.env のないサイトは空のファイルに向ける
+    return {
+        site.env_file_variable: "/dev/null"
+        for site in SITES
+        if not (main_dir.parent / site.dir_name / ".env").exists()
+    }
+
+
 def compose(runner: Runner, *args: str, cwd: Path = MAIN_DIR, **kwargs):
-    return runner.run(["docker", "compose", *args], cwd=cwd, **kwargs)
+    return runner.run(["docker", "compose", *args], cwd=cwd, env=compose_env(cwd) or None, **kwargs)
 
 
 def ensure_network(runner: Runner) -> bool:

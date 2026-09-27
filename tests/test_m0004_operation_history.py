@@ -40,7 +40,7 @@ def test_adds_secret_key_and_rebuilds(fake_runner, main_dir):
     env = parse_env((main_dir / ".env").read_text())
     assert env["WP1_DOMAIN"] == "local.wp1.yamashita109.com"
     assert len(env["DASHBOARD_API_TOKEN"]) >= 50
-    assert ["docker", "compose", "up", "-d", "--build", "--wait"] in runner.calls
+    assert ["docker", "compose", "up", "-d", "--wait", "caddy"] in runner.calls
 
 
 def test_keeps_existing_key(fake_runner, main_dir):
@@ -75,7 +75,10 @@ def test_auto_runs(fake_runner, main_dir, monkeypatch):
     monkeypatch.setattr(trust, "STATE_FILE", local / "state.json")
     trust.update_state(env_version=3)
     (main_dir.parent / "wp-wp1").mkdir()
+    # 後の migration の前提（サイトの .env など）はこのテストの対象外なので、この版までに限る
+    found = versioning.discover()
+    monkeypatch.setattr(versioning, "discover", lambda *args: [module for module in found if module.VERSION <= 4])
     runner = fake_runner(caddy(running=True))
     assert versioning.migrate(runner, main_dir.parent, auto=True, main_dir=main_dir) == 0
-    assert trust.load_state()["env_version"] == versioning.latest()
+    assert trust.load_state()["env_version"] == 4
     assert "DASHBOARD_API_TOKEN" in (main_dir / ".env").read_text()

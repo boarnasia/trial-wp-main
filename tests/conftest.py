@@ -15,10 +15,12 @@ class FakeRunner(Runner):
     def __init__(self, responder: Callable[[list[str]], tuple[int, str]] | None = None, dry_run=False):
         super().__init__(dry_run=dry_run)
         self.calls: list[list[str]] = []
+        self.envs: list[dict[str, str] | None] = []
         self.responder = responder or (lambda args: (0, ""))
 
-    def run(self, args, *, cwd=None, check=True, capture=False, mutate=True):
+    def run(self, args, *, cwd=None, check=True, capture=False, mutate=True, env=None):
         self.calls.append(list(args))
+        self.envs.append(env)
         code, out = (0, "") if (mutate and self.dry_run) else self.responder(list(args))
         if check and code != 0:
             raise DevEnvError(f"failed: {args}")

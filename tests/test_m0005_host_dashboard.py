@@ -45,8 +45,8 @@ def legacy(main_dir: Path, *, running=True, exists=True, copy=lambda out: make_d
     return respond
 
 
-def test_is_latest_and_runs_automatically():
-    assert versioning.latest() == 5
+def test_runs_automatically():
+    assert m0005_host_dashboard.VERSION == 5
     assert not m0005_host_dashboard.REQUIRES_SUDO and not m0005_host_dashboard.DESTRUCTIVE
 
 
@@ -59,7 +59,7 @@ def test_copies_history_then_removes_legacy(fake_runner, main_dir):
     assert ["docker", "rm", "-f"] in order
     assert order.index(["docker", "run", "--rm"]) < order.index(["docker", "volume", "rm"])
     assert ["docker", "image", "rm", "wp-main-dashboard"] in runner.calls
-    assert ["docker", "compose", "up", "-d", "--build", "--wait"] in runner.calls
+    assert ["docker", "compose", "up", "-d", "--wait", "caddy"] in runner.calls
 
 
 def test_existing_db_is_kept(fake_runner, main_dir):
@@ -111,3 +111,13 @@ def test_auto_runs(fake_runner, main_dir, monkeypatch):
     runner = fake_runner(legacy(main_dir))
     assert versioning.migrate(runner, main_dir.parent, auto=True, main_dir=main_dir) == 0
     assert trust.load_state()["env_version"] == 5
+
+
+def test_rebuild_starts_only_the_proxy(fake_runner, tmp_path):
+    from types import SimpleNamespace
+
+    from wp_main.devenv.migrations._env import rebuild_if_running
+
+    runner = fake_runner(lambda args: (0, "abc\n" if args[-1] == "caddy" and "ps" in args else ""))
+    rebuild_if_running(SimpleNamespace(runner=runner, main_dir=tmp_path))
+    assert runner.mutating(["docker", "compose", "up"]) == [["docker", "compose", "up", "-d", "--wait", "caddy"]]

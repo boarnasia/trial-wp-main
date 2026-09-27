@@ -2,6 +2,8 @@ import sys
 import threading
 from pathlib import Path
 
+import pytest
+
 from wp_main import processes
 from wp_main.processes import HostProcess, host_processes, supervise
 
@@ -47,21 +49,22 @@ def test_port_in_use():
     assert not processes.port_in_use(port)
 
 
-def test_serve_refuses_busy_port(monkeypatch, manage):
-    started = []
-    monkeypatch.setattr(processes, "port_in_use", lambda port: True)
-    monkeypatch.setattr(processes, "supervise", lambda *args, **kwargs: started.append(args) or 0)
+def test_old_devenv_serve_points_to_serve(monkeypatch, manage):
+    monkeypatch.setattr(processes, "supervise", lambda *args, **kwargs: pytest.fail("起動してはならない"))
     result = manage("devenv", "serve")
     assert result.exit_code == 1
-    assert "は使用中です" in result.stderr and "DASHBOARD_PORT" in result.stderr
-    assert started == []
+    assert "uv run manage.py serve" in result.stderr
 
 
 def test_serve_prepares_db_then_supervises(monkeypatch, manage):
+    from wp_main import session
+
     calls = []
     monkeypatch.setattr(processes, "port_in_use", lambda port: False)
-    monkeypatch.setattr("wp_main.cli.management.commands.devenv.call_command", lambda *a, **k: calls.append("migrate"))
+    monkeypatch.setattr("wp_main.cli.management.commands.serve.call_command", lambda *a, **k: calls.append("migrate"))
+    monkeypatch.setattr(session, "begin", lambda runner, sites, root: calls.append("begin"))
+    monkeypatch.setattr(session, "end", lambda runner, root: calls.append("end"))
     monkeypatch.setattr(processes, "supervise", lambda procs, **kwargs: calls.append([p.name for p in procs]) or 0)
-    result = manage("devenv", "serve")
+    result = manage("serve")
     assert result.exit_code == 0
-    assert calls == ["migrate", ["dashboard"]]
+    assert calls == ["migrate", "begin", ["dashboard"], "end"]

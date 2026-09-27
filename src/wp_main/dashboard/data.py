@@ -28,7 +28,7 @@ class SiteView:
 
 
 def sites_root() -> Path:
-    # devenv serve --root の値を、ダッシュボードのプロセスに環境変数で引き継ぐ
+    # serve --root の値を、ダッシュボードのプロセスに環境変数で引き継ぐ
     value = os.environ.get("WP_MAIN_ROOT")
     return resolve_root(Path(value) if value else None)
 

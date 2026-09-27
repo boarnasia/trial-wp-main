@@ -15,6 +15,10 @@ CADDY_IMAGE = "caddy:2"
 CADDY_ROOT_CERT = "/data/caddy/pki/authorities/local/root.crt"
 CADDY_VOLUMES = ("wp-caddy-data", "wp-caddy-config")
 MYSQL_IMAGE = "mysql:8.0"
+MYSQL_SERVICE = "mysql"
+MYSQL_CONTAINER = "wp-mysql"
+MYSQL_VOLUME = "wp-mysql-data"
+DB_NETWORK = "wp-db"
 WP_CLI_IMAGE = "wordpress:cli"
 PROXY_PORTS = (80, 443)
 DASHBOARD_DOMAIN = "local.wp-main.yamashita109.com"
@@ -44,8 +48,20 @@ class Site:
         return f"{self.id}-cli"
 
     @property
+    def env_file_variable(self) -> str:
+        return f"{self.id.upper()}_ENV_FILE"
+
+    @property
+    def legacy_db_container(self) -> str:
+        return f"{self.id}-db"
+
+    @property
+    def legacy_db_volume(self) -> str:
+        return f"{self.id}-db-data"
+
+    @property
     def volumes(self) -> tuple[str, ...]:
-        return (f"{self.id}-db-data", f"{self.id}-html")
+        return (self.legacy_db_volume, f"{self.id}-html")
 
 
 SITES = (

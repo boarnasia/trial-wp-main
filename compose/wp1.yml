@@ -1,0 +1,51 @@
+# wp1 の WordPress。値はサイトの .env（サイト設定）と wp-main の .env（DB の接続情報）から補間する
+# 相対パスは include の project_directory（../wp-wp1）を基準にする
+x-wordpress-env: &wordpress-env
+  WORDPRESS_DB_HOST: wp-mysql
+  WORDPRESS_DB_NAME: ${WP_DB_NAME:-wp1}
+  WORDPRESS_DB_USER: ${DB_USER:-wordpress}
+  WORDPRESS_DB_PASSWORD: ${DB_PASSWORD}
+  WORDPRESS_TABLE_PREFIX: ${WP_TABLE_PREFIX:-wp_}
+  WORDPRESS_DEBUG: ${WP_DEBUG:-1}
+  WP_HOME: ${WP_HOME}
+  WORDPRESS_CONFIG_EXTRA: "require_once '/usr/local/etc/wordpress/wp-config-proxy.php';"
+
+x-wordpress-volumes: &wordpress-volumes
+  - wp1-html:/var/www/html
+  - ./wp-content:/var/www/html/wp-content
+  - ./config/wp-config-proxy.php:/usr/local/etc/wordpress/wp-config-proxy.php:ro
+
+services:
+  wp1-wordpress:
+    # .env がないとき（WP1_ENV_FILE=/dev/null）もプロジェクトを読めるよう既定値を持たせる
+    image: ${WP_IMAGE:-wordpress:apache}
+    container_name: wp1-wordpress
+    # 開発セッションの外で勝手に起動しないよう、再起動の方針は付けない
+    depends_on:
+      mysql:
+        condition: service_healthy
+    environment: *wordpress-env
+    volumes: *wordpress-volumes
+    ports:
+      - "127.0.0.1:${WP_DEBUG_PORT:-0}:80"
+    networks:
+      - wp-db
+      - wp-global-net
+
+  wp1-cli:
+    image: wordpress:cli
+    profiles: [cli]
+    # wordpress:cli (alpine) の www-data は uid 82 のため、apache イメージの www-data (33) に合わせる
+    user: "33:33"
+    depends_on:
+      mysql:
+        condition: service_healthy
+    environment: *wordpress-env
+    volumes: *wordpress-volumes
+    networks:
+      - wp-db
+
+volumes:
+  # WordPress 本体のファイル。旧構成と同じ名前にして、移行後もそのまま使う
+  wp1-html:
+    name: wp1-html

@@ -58,8 +58,12 @@ def test_db_and_legacy_dashboard_removed(tmp_path, fake_runner, monkeypatch):
     assert not (local / "db.sqlite3").exists() and not (local / "db.sqlite3-wal").exists()
     assert not (local / "locks").exists()
     assert ["docker", "rm", "-f", "wp-dashboard"] in runner.calls
+    assert ["docker", "rm", "-f", "wp1-db"] in runner.calls and ["docker", "rm", "-f", "wp2-db"] in runner.calls
+    assert ["docker", "compose", "down", "--volumes", "--remove-orphans"] in runner.calls
+    assert ["docker", "network", "rm", "wp-db"] in runner.calls
     assert ["docker", "image", "rm", "wp-main-dashboard"] in runner.calls
-    assert any(call[:3] == ["docker", "volume", "rm"] and "wp-dashboard-data" in call for call in runner.calls)
+    [volumes] = runner.mutating(["docker", "volume", "rm"])
+    assert {"wp-dashboard-data", "wp-mysql-data", "wp1-db-data", "wp2-db-data"} <= set(volumes)
 
 
 def test_running_serve_is_warned(tmp_path, fake_runner, monkeypatch, capsys):
@@ -68,4 +72,4 @@ def test_running_serve_is_warned(tmp_path, fake_runner, monkeypatch, capsys):
     monkeypatch.setattr(devenv, "dashboard_running", lambda: True)
     with pytest.raises(typer.Exit):
         devenv.uninstall(fake_runner(), tmp_path, assume_yes=False)
-    assert "devenv serve が動いています" in capsys.readouterr().out
+    assert "uv run manage.py serve が動いています" in capsys.readouterr().out
